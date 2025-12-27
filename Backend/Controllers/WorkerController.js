@@ -12,18 +12,19 @@ exports.registerEmployee = async (req, res) => {
       name, email, phone, password, 
       language, user_type, years_of_experience, 
       address, location,
-      skill_ids // Array of UUIDs: ["skill-uuid-1", "skill-uuid-2"]
+      skill_ids,       // Array of UUIDs for existing skills
+      requested_skills // Array of Strings for new skill suggestions
     } = req.body;
 
     const password_hash = await bcrypt.hash(password, 10);
-    const id = crypto.randomUUID();
+    const employee_id = crypto.randomUUID();
     const pointString = location ? `POINT(${location.longitude} ${location.latitude})` : null;
 
     // STEP 1: Insert the Employee
     const { data: employeeData, error: empError } = await supabase
       .from("employees")
       .insert({
-        id, name, email, phone, password_hash,
+        id: employee_id, name, email, phone, password_hash,
         language, user_type, years_of_experience,
         address, location: pointString, status: "active"
       })
@@ -32,10 +33,10 @@ exports.registerEmployee = async (req, res) => {
 
     if (empError) return res.status(400).json({ error: empError.message });
 
-    // STEP 2: Link Skills (if any are provided)
+    // STEP 2: Link Existing Skills (UUIDs)
     if (skill_ids && Array.isArray(skill_ids) && skill_ids.length > 0) {
       const skillLinks = skill_ids.map(skill_id => ({
-        employee_id: id,
+        employee_id: employee_id,
         skill_id: skill_id
       }));
 
@@ -43,17 +44,33 @@ exports.registerEmployee = async (req, res) => {
         .from("employee_skills")
         .insert(skillLinks);
 
-      if (skillError) {
-        return res.status(400).json({ error: "Employee created but skills failed: " + skillError.message });
-      }
+      // Note: We don't necessarily want to crash the whole registration 
+      // if skill linking fails, but we log it.
+      if (skillError) console.error("Link skills error:", skillError.message);
+    }
+
+    // STEP 3: Save New Requested Skills (Strings)
+    if (requested_skills && Array.isArray(requested_skills) && requested_skills.length > 0) {
+      const requestsToInsert = requested_skills.map(skillName => ({
+        employee_id: employee_id,
+        skill_name: skillName,
+        status: 'pending'
+      }));
+
+      const { error: requestError } = await supabase
+        .from("skills_requested")
+        .insert(requestsToInsert);
+
+      if (requestError) console.error("Requested skills error:", requestError.message);
     }
 
     res.json({ 
-      message: "Employee registered with skills successfully", 
+      message: "Employee registered successfully. Skill requests submitted for admin review.", 
       employee: employeeData 
     });
 
   } catch (err) {
+    console.error("Registration Error:", err);
     res.status(500).json({ error: "Internal server error" });
   }
 };
@@ -86,17 +103,40 @@ exports.loginEmployee = async (req, res) => {
 exports.getEmployeeProfile = async (req, res) => {
   try {
     const token = req.headers.authorization?.split(" ")[1];
+    if (!token) return res.status(401).json({ error: "No token provided" });
+
     const decoded = jwt.verify(token, JWT_SECRET);
 
-    const { data } = await supabase
+    // Fetch employee details AND their linked skills
+    const { data, error } = await supabase
       .from("employees")
-      .select("id,name,email,phone,years_of_experience,address,language,rating,status,user_type,created_at")
+      .select(`
+        id, name, email, phone, years_of_experience, address, language, rating, status, user_type, created_at,
+        employee_skills (
+          skills (
+            id,
+            skill_name
+          )
+        )
+      `)
       .eq("id", decoded.id)
       .single();
 
-    res.json(data);
-  } catch {
-    res.status(401).json({ error: "Unauthorized" });
+    if (error) return res.status(400).json({ error: error.message });
+    if (!data) return res.status(404).json({ error: "Employee not found" });
+
+    // Flatten the skills array for a cleaner API response
+    const formattedData = {
+      ...data,
+      skills: data.employee_skills.map(item => item.skills)
+    };
+
+    // Remove the nested original key to keep it clean
+    delete formattedData.employee_skills;
+
+    res.json(formattedData);
+  } catch (err) {
+    res.status(401).json({ error: "Unauthorized or invalid token" });
   }
 };
 
@@ -218,35 +258,6 @@ exports.removeEmployeeSkill = async (req, res) => {
 
     res.json({ message: "Skill removed successfully" });
 
-  } catch (err) {
-    res.status(401).json({ error: "Unauthorized" });
-  }
-};
-
-/* ---------------- GET EMPLOYEE SKILLS ---------------- */
-exports.getEmployeeSkills = async (req, res) => {
-  try {
-    const authHeader = req.headers.authorization;
-    const token = authHeader.split(" ")[1];
-    const decoded = jwt.verify(token, JWT_SECRET);
-
-    // Join with skills table to get the names
-    const { data, error } = await supabase
-      .from("employee_skills")
-      .select(`
-        skill_id,
-        skills (
-          skill_name,
-          job_domains (
-            domain_name
-          )
-        )
-      `)
-      .eq("employee_id", decoded.id);
-
-    if (error) throw error;
-
-    res.json(data);
   } catch (err) {
     res.status(401).json({ error: "Unauthorized" });
   }

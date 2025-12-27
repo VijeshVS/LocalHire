@@ -13,10 +13,9 @@ exports.findNearbyEmployeesWithSkills = async (req, res) => {
 
     if (error) return res.status(400).json({ error: error.message });
 
-    // Flatten the response so the employee details and distance are at the same level
     const formattedData = data.map(row => ({
       ...row.employee_data,
-      distance_km: (row.dist_meters / 1000).toFixed(2)
+      distance_km: parseFloat((row.dist_meters / 1000).toFixed(2))
     }));
 
     res.json(formattedData);
@@ -40,29 +39,18 @@ exports.findNearbyJobs = async (req, res) => {
       radius_meters: parseFloat(radius_km) * 1000
     });
 
-    if (error) {
-      console.error("RPC Error:", error);
-      return res.status(400).json({ error: error.message });
-    }
+    if (error) return res.status(400).json({ error: error.message });
 
-    // Transform the result to convert meters to km
     const formattedData = data.map(job => {
-      // 1. Calculate the km value from the DB's dist_meters
-      const kmValue = job.dist_meters / 1000;
-      
-      // 2. Remove the meters property and add the km property
-      const { dist_meters, ...jobWithoutMeters } = job;
-      
+      const { dist_meters, ...jobData } = job;
       return {
-        ...jobWithoutMeters,
-        dist_km: parseFloat(kmValue.toFixed(2)) // Round to 2 decimal places
+        ...jobData,
+        dist_km: parseFloat((dist_meters / 1000).toFixed(2))
       };
     });
 
     res.json(formattedData);
-
   } catch (err) {
-    console.error("Internal Error:", err);
     res.status(500).json({ error: "Internal server error" });
   }
 };

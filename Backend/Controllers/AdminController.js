@@ -52,59 +52,25 @@ exports.loginAdmin = async (req, res) => {
   }
 };
 
-/* --- 2. JOB DOMAINS --- */
-exports.addDomain = async (req, res) => {
-  const { domain_name } = req.body;
-  const { data, error } = await supabase
-    .from("job_domains")
-    .insert({ id: crypto.randomUUID(), domain_name })
-    .select();
+/* --- 1. CORE SKILLS MANAGEMENT --- */
 
-  if (error) return res.status(400).json({ error: error.message });
-  res.status(201).json(data[0]);
-};
-
-exports.updateDomain = async (req, res) => {
-  const { domain_name } = req.body;
-  const { data, error } = await supabase
-    .from("job_domains")
-    .update({ domain_name })
-    .eq("id", req.params.id)
-    .select();
-
-  if (error) return res.status(400).json({ error: error.message });
-  res.json(data[0]);
-};
-
-exports.deleteDomain = async (req, res) => {
-  const { error } = await supabase.from("job_domains").delete().eq("id", req.params.id);
-  if (error) return res.status(400).json({ error: error.message });
-  res.json({ message: "Domain and associated skills deleted" });
-};
-
-/* --- 3. SKILLS --- */
+// Add a new skill directly (Admin use)
 exports.addSkill = async (req, res) => {
   try {
-    const { domain_id, skill_name, skills } = req.body;
+    const { skill_name, skills } = req.body;
     let skillsToInsert = [];
 
-    if (Array.isArray(skills)) {
-      skillsToInsert = skills.map(name => ({
-        id: crypto.randomUUID(),
-        domain_id,
-        skill_name: name
-      }));
-    } else if (skill_name) {
-      skillsToInsert = [{
-        id: crypto.randomUUID(),
-        domain_id,
-        skill_name
-      }];
-    }
+    // Handle both single string or array of strings
+    const skillList = Array.isArray(skills) ? skills : (skill_name ? [skill_name] : []);
 
-    if (skillsToInsert.length === 0) {
+    if (skillList.length === 0) {
       return res.status(400).json({ error: "No skills provided" });
     }
+
+    skillsToInsert = skillList.map(name => ({
+      id: crypto.randomUUID(),
+      skill_name: name
+    }));
 
     const { data, error } = await supabase
       .from("skills")
@@ -136,53 +102,86 @@ exports.deleteSkill = async (req, res) => {
   res.json({ message: "Skill deleted" });
 };
 
-/* --- 4. DATA RETRIEVAL --- */
-exports.getDomains = async (req, res) => {
+/* --- 2. SKILLS REQUESTED (ADMIN WORKFLOW) --- */
+
+exports.reviewSkillRequest = async (req, res) => {
   try {
-    const { data, error } = await supabase
-      .from("job_domains")
+    const { id } = req.params; // ID of the request (from skills_requested table)
+    const { action, admin_notes } = req.body; // action: 'approved' or 'rejected'
+
+    if (!['approved', 'rejected'].includes(action)) {
+      return res.status(400).json({ error: "Invalid action. Use 'approved' or 'rejected'." });
+    }
+
+    // 1. Fetch the request details to get the skill name and the employee who asked
+    const { data: request, error: fetchError } = await supabase
+      .from("skills_requested")
       .select("*")
-      .order("domain_name", { ascending: true });
+      .eq("id", id)
+      .single();
 
-    if (error) return res.status(400).json({ error: error.message });
-    res.json(data);
+    if (fetchError || !request) return res.status(404).json({ error: "Request not found" });
+
+    if (action === 'approved') {
+      const newSkillId = crypto.randomUUID();
+
+      // 2. Add to master skills table
+      const { data: newSkill, error: insertError } = await supabase
+        .from("skills")
+        .insert([{ id: newSkillId, skill_name: request.skill_name }])
+        .select()
+        .single();
+
+      // If skill already exists (error 23505), we should find the existing skill's ID
+      let finalSkillId = newSkillId;
+      
+      if (insertError) {
+        if (insertError.code === '23505') {
+          const { data: existingSkill } = await supabase
+            .from("skills")
+            .select("id")
+            .eq("skill_name", request.skill_name)
+            .single();
+          finalSkillId = existingSkill.id;
+        } else {
+          return res.status(400).json({ error: insertError.message });
+        }
+      }
+
+      // 3. Link the skill to the employee who requested it
+      const { error: linkError } = await supabase
+        .from("employee_skills")
+        .insert([{ 
+          employee_id: request.employee_id, 
+          skill_id: finalSkillId 
+        }]);
+
+      if (linkError && linkError.code !== '23505') { // Ignore if link already exists
+        return res.status(400).json({ error: "Skill approved but failed to link to employee: " + linkError.message });
+      }
+    }
+
+    // 4. Update the request status
+    const { data: updatedRequest, error: updateError } = await supabase
+      .from("skills_requested")
+      .update({ 
+        status: action, 
+        admin_notes: admin_notes || null,
+        reviewed_at: new Date()
+      })
+      .eq("id", id)
+      .select();
+
+    if (updateError) return res.status(400).json({ error: updateError.message });
+
+    res.json({ 
+      message: `Skill ${action} and linked to employee successfully`, 
+      data: updatedRequest[0] 
+    });
+
   } catch (err) {
+    console.error(err);
     res.status(500).json({ error: "Server error" });
   }
 };
 
-exports.getSkillsByDomain = async (req, res) => {
-  try {
-    const { domain_id } = req.params;
-    const { data, error } = await supabase
-      .from("skills")
-      .select("*")
-      .eq("domain_id", domain_id)
-      .order("skill_name", { ascending: true });
-
-    if (error) return res.status(400).json({ error: error.message });
-    res.json(data);
-  } catch (err) {
-    res.status(500).json({ error: "Server error" });
-  }
-};
-
-exports.getAllDomainsWithSkills = async (req, res) => {
-  try {
-    const { data, error } = await supabase
-      .from("job_domains")
-      .select(`
-        id,
-        domain_name,
-        skills (
-          id,
-          skill_name
-        )
-      `);
-
-    if (error) return res.status(400).json({ error: error.message });
-    res.json(data);
-  } catch (err) {
-    res.status(500).json({ error: "Server error" });
-  }
-};

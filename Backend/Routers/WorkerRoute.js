@@ -10,8 +10,7 @@ router.post("/login", employeeController.loginEmployee);
 router.get("/profile", employeeController.getEmployeeProfile);
 router.put("/update", employeeController.updateEmployeeProfile);
 
-//Skills Management
-router.get("/skills", employeeController.getEmployeeSkills);          
+//Skills Management       
 router.post("/skills", employeeController.addEmployeeSkill);         
 router.delete("/skills/:skill_id", employeeController.removeEmployeeSkill); 
 

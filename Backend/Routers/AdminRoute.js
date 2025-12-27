@@ -7,14 +7,11 @@ const { verifyAdmin } = require("../Middleware/Authentication.js");
 router.post("/register", adminController.registerAdmin);
 router.post("/login", adminController.loginAdmin);
 
-// 2. Domain Routes (Protected)
-router.post("/domains", verifyAdmin, adminController.addDomain);
-router.put("/domains/:id", verifyAdmin, adminController.updateDomain);
-router.delete("/domains/:id", verifyAdmin, adminController.deleteDomain);
-
 // 3. Skill Routes (Protected)
 router.post("/skills", verifyAdmin, adminController.addSkill);
 router.put("/skills/:id", verifyAdmin, adminController.updateSkill);
 router.delete("/skills/:id", verifyAdmin, adminController.deleteSkill);
+router.patch("/skills/requests/:id", verifyAdmin, adminController.reviewSkillRequest);
+
 
 module.exports = router;
