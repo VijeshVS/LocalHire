@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import {
   View,
   Text,
@@ -7,16 +7,76 @@ import {
   FlatList,
   StatusBar,
   TextInput,
+  ActivityIndicator,
+  RefreshControl,
 } from 'react-native';
-import { router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { COLORS, SPACING, TYPOGRAPHY, RADIUS, SHADOWS } from '../../constants/theme';
+import { getConversations } from '../../services/messageService';
+
+// Format time ago
+const formatTimeAgo = (dateString: string) => {
+  if (!dateString) return '';
+  const date = new Date(dateString);
+  const now = new Date();
+  const diffMs = now.getTime() - date.getTime();
+  const diffMins = Math.floor(diffMs / 60000);
+  const diffHours = Math.floor(diffMs / 3600000);
+  const diffDays = Math.floor(diffMs / 86400000);
+
+  if (diffMins < 1) return 'Just now';
+  if (diffMins < 60) return `${diffMins}m`;
+  if (diffHours < 24) return `${diffHours}h`;
+  if (diffDays < 7) return `${diffDays}d`;
+  return date.toLocaleDateString();
+};
 
 export default function WorkerMessages() {
   const [searchQuery, setSearchQuery] = useState('');
   const [filter, setFilter] = useState<'all' | 'unread'>('all');
   const [conversations, setConversations] = useState<any[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const fetchConversations = async () => {
+    try {
+      const data = await getConversations();
+      const formatted = data.map((conv: any) => {
+        const otherUser = conv.other_user;
+        const name = otherUser?.company_name || otherUser?.name || 'Unknown';
+        return {
+          id: conv.id,
+          name: name,
+          avatar: name.split(' ').map((n: string) => n[0]).join('').toUpperCase().slice(0, 2),
+          role: conv.other_user_role === 'EMPLOYER' ? 'Employer' : 'Worker',
+          jobTitle: conv.job?.title || 'General',
+          lastMessage: conv.last_message || 'No messages yet',
+          time: formatTimeAgo(conv.last_message_at || conv.created_at),
+          unread: conv.unread_count || 0,
+          online: false,
+        };
+      });
+      setConversations(formatted);
+    } catch (error) {
+      console.error('Error fetching conversations:', error);
+    } finally {
+      setIsLoading(false);
+      setRefreshing(false);
+    }
+  };
+
+  useFocusEffect(
+    useCallback(() => {
+      fetchConversations();
+    }, [])
+  );
+
+  const onRefresh = () => {
+    setRefreshing(true);
+    fetchConversations();
+  };
 
   const filteredConversations = conversations.filter(conv => {
     const matchesSearch = conv.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -80,6 +140,18 @@ export default function WorkerMessages() {
       </View>
     </TouchableOpacity>
   );
+
+  if (isLoading) {
+    return (
+      <SafeAreaView style={styles.container} edges={['top']}>
+        <StatusBar barStyle="dark-content" backgroundColor={COLORS.white} />
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color={COLORS.worker.primary} />
+          <Text style={styles.loadingText}>Loading messages...</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
@@ -179,6 +251,9 @@ export default function WorkerMessages() {
           keyExtractor={(item) => item.id}
           showsVerticalScrollIndicator={false}
           contentContainerStyle={styles.conversationsList}
+          refreshControl={
+            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+          }
         />
       ) : (
         <View style={styles.emptyState}>
@@ -201,6 +276,16 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: COLORS.gray[50],
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingText: {
+    marginTop: SPACING.md,
+    fontSize: TYPOGRAPHY.sizes.base,
+    color: COLORS.gray[600],
   },
   header: {
     flexDirection: 'row',

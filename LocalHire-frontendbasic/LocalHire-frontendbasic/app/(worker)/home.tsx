@@ -8,6 +8,7 @@ import {
   StatusBar,
   Animated,
   ActivityIndicator,
+  Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
@@ -15,6 +16,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { COLORS, SPACING, TYPOGRAPHY, RADIUS, SHADOWS } from '../../constants/theme';
 import { useAuth } from '../../context/AuthContext';
 import { findNearbyJobs } from '../../services/locationService';
+import * as Location from 'expo-location';
 
 type AvailabilityStatus = 'available' | 'busy' | 'offline';
 
@@ -24,40 +26,87 @@ export default function WorkerHome() {
   const [nearbyJobs, setNearbyJobs] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [userLocation, setUserLocation] = useState<{latitude: number, longitude: number} | null>(null);
+  const [locationName, setLocationName] = useState<string>('Getting location...');
 
   useEffect(() => {
-    fetchNearbyJobs();
+    getUserLocationAndFetchJobs();
   }, []);
 
-  const fetchNearbyJobs = async () => {
+  const getUserLocationAndFetchJobs = async () => {
     try {
       setIsLoading(true);
       setErrorMsg(null);
-      console.log('🔄 Fetching nearby jobs...');
-      const latitude = 12.9716;
-      const longitude = 77.5946;
-      const jobs = await findNearbyJobs(latitude, longitude, 10);
-      console.log('✅ Jobs fetched:', jobs?.length || 0);
+      
+      // Request location permission
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') {
+        setErrorMsg('Location permission denied. Please enable location to see nearby jobs.');
+        setLocationName('Location not available');
+        setIsLoading(false);
+        return;
+      }
+
+      // Get current location
+      console.log('📍 Getting current location...');
+      const location = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.Balanced,
+      });
+      
+      const { latitude, longitude } = location.coords;
+      setUserLocation({ latitude, longitude });
+      console.log('📍 Location obtained:', latitude, longitude);
+
+      // Get location name
+      try {
+        const [address] = await Location.reverseGeocodeAsync({ latitude, longitude });
+        if (address) {
+          const name = address.district || address.city || address.region || 'Your Location';
+          setLocationName(name);
+        }
+      } catch {
+        setLocationName('Your Location');
+      }
+
+      // Fetch jobs near user's location
+      await fetchJobsAtLocation(latitude, longitude);
+    } catch (error: any) {
+      console.error('❌ Location error:', error);
+      setErrorMsg('Failed to get location. Please try again.');
+      setLocationName('Location error');
+      setIsLoading(false);
+    }
+  };
+
+  const fetchJobsAtLocation = async (latitude: number, longitude: number) => {
+    try {
+      console.log('🔄 Fetching jobs near:', latitude, longitude);
+      const jobs = await findNearbyJobs(latitude, longitude, 50);
+      console.log('✅ Nearby jobs fetched:', jobs?.length || 0);
       
       const formattedJobs = jobs.map((job: any) => ({
         id: job.id,
         title: job.title,
-        distance: job.distance_km ? `${job.distance_km.toFixed(1)}km` : 'N/A',
+        distance: job.distance_km ? `${job.distance_km.toFixed(1)}km` : (job.dist_km ? `${job.dist_km.toFixed(1)}km` : 'N/A'),
         pay: job.wage || 0,
         urgency: 'today',
         location: job.address || 'N/A',
         rating: 4.0,
         company: 'Employer',
-        category: 'General'
+        category: job.category || 'General'
       }));
       setNearbyJobs(formattedJobs);
     } catch (error: any) {
-      console.error('❌ Error fetching nearby jobs:', error);
-      setErrorMsg(error.message || 'Failed to connect to server');
+      console.error('❌ Error fetching jobs:', error);
+      setErrorMsg(error.message || 'Failed to fetch jobs');
       setNearbyJobs([]);
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const refreshLocation = () => {
+    getUserLocationAndFetchJobs();
   };
 
   const getAvailabilityConfig = (status: AvailabilityStatus) => {
@@ -175,6 +224,31 @@ export default function WorkerHome() {
           <View style={styles.notificationBadge}>
             <Text style={styles.notificationCount}>3</Text>
           </View>
+        </TouchableOpacity>
+      </View>
+
+      {/* Location Bar */}
+      <View style={styles.locationBar}>
+        <View style={styles.locationInfo}>
+          <Ionicons name="location" size={18} color={COLORS.worker.primary} />
+          <Text style={styles.locationText} numberOfLines={1}>{locationName}</Text>
+        </View>
+        <TouchableOpacity 
+          style={styles.refreshLocationButton}
+          onPress={refreshLocation}
+          disabled={isLoading}
+        >
+          <Ionicons 
+            name="refresh" 
+            size={18} 
+            color={isLoading ? COLORS.gray[400] : COLORS.worker.primary} 
+          />
+          <Text style={[
+            styles.refreshLocationText,
+            isLoading && { color: COLORS.gray[400] }
+          ]}>
+            {isLoading ? 'Loading...' : 'Refresh'}
+          </Text>
         </TouchableOpacity>
       </View>
 
@@ -362,6 +436,40 @@ const styles = StyleSheet.create({
     color: COLORS.white,
     fontSize: 10,
     fontWeight: TYPOGRAPHY.weights.bold,
+  },
+  locationBar: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: SPACING.xl,
+    paddingVertical: SPACING.md,
+    backgroundColor: COLORS.worker.bg,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.gray[200],
+  },
+  locationInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACING.sm,
+    flex: 1,
+  },
+  locationText: {
+    fontSize: TYPOGRAPHY.sizes.sm,
+    fontWeight: TYPOGRAPHY.weights.medium,
+    color: COLORS.gray[700],
+    flex: 1,
+  },
+  refreshLocationButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingVertical: SPACING.xs,
+    paddingHorizontal: SPACING.sm,
+  },
+  refreshLocationText: {
+    fontSize: TYPOGRAPHY.sizes.sm,
+    color: COLORS.worker.primary,
+    fontWeight: TYPOGRAPHY.weights.medium,
   },
   listContainer: {
     padding: SPACING.xl,

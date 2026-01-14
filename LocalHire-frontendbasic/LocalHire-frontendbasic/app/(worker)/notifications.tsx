@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -7,15 +7,99 @@ import {
   FlatList,
   StatusBar,
   Alert,
+  ActivityIndicator,
+  RefreshControl,
 } from 'react-native';
-import { router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { COLORS, SPACING, TYPOGRAPHY, RADIUS, SHADOWS } from '../../constants/theme';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { 
+  getNotifications, 
+  markNotificationAsRead, 
+  markAllNotificationsAsRead, 
+  clearAllNotifications 
+} from '../../services/notificationService';
+
+// Map notification types to icons
+const getNotificationIcon = (type: string) => {
+  switch (type) {
+    case 'application_accepted':
+      return { icon: 'checkmark-circle', color: COLORS.status.success };
+    case 'application_rejected':
+      return { icon: 'close-circle', color: COLORS.status.error };
+    case 'application_shortlisted':
+      return { icon: 'star', color: COLORS.status.warning };
+    case 'message':
+      return { icon: 'chatbubble', color: COLORS.worker.primary };
+    case 'job_match':
+      return { icon: 'briefcase', color: COLORS.worker.primary };
+    default:
+      return { icon: 'notifications', color: COLORS.gray[600] };
+  }
+};
+
+// Format time ago
+const formatTimeAgo = (dateString: string) => {
+  const date = new Date(dateString);
+  const now = new Date();
+  const diffMs = now.getTime() - date.getTime();
+  const diffMins = Math.floor(diffMs / 60000);
+  const diffHours = Math.floor(diffMs / 3600000);
+  const diffDays = Math.floor(diffMs / 86400000);
+
+  if (diffMins < 1) return 'Just now';
+  if (diffMins < 60) return `${diffMins}m ago`;
+  if (diffHours < 24) return `${diffHours}h ago`;
+  if (diffDays < 7) return `${diffDays}d ago`;
+  return date.toLocaleDateString();
+};
 
 export default function WorkerNotifications() {
   const [notificationList, setNotificationList] = useState<any[]>([]);
   const [filter, setFilter] = useState<'all' | 'unread'>('all');
+  const [isLoading, setIsLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const fetchNotifications = async () => {
+    try {
+      const data = await getNotifications();
+      const formatted = data.map((n: any) => {
+        const iconConfig = getNotificationIcon(n.type);
+        return {
+          id: n.id,
+          type: n.type,
+          title: n.title,
+          message: n.message,
+          read: n.is_read,
+          time: formatTimeAgo(n.created_at),
+          icon: iconConfig.icon,
+          iconBg: iconConfig.color,
+          metadata: n.metadata || {},
+          jobId: n.metadata?.job_id,
+          chatId: n.metadata?.conversation_id,
+        };
+      });
+      setNotificationList(formatted);
+    } catch (error) {
+      console.error('Error fetching notifications:', error);
+    } finally {
+      setIsLoading(false);
+      setRefreshing(false);
+    }
+  };
+
+  // Refresh on screen focus
+  useFocusEffect(
+    useCallback(() => {
+      fetchNotifications();
+    }, [])
+  );
+
+  const onRefresh = () => {
+    setRefreshing(true);
+    fetchNotifications();
+  };
 
   const unreadCount = notificationList.filter(n => !n.read).length;
 
@@ -23,16 +107,25 @@ export default function WorkerNotifications() {
     filter === 'all' || (filter === 'unread' && !n.read)
   );
 
-  const handleNotificationPress = (notification: any) => {
-    // Mark as read
-    setNotificationList(prev => 
-      prev.map(n => n.id === notification.id ? { ...n, read: true } : n)
-    );
+  const handleNotificationPress = async (notification: any) => {
+    // Mark as read in backend
+    try {
+      if (!notification.read) {
+        await markNotificationAsRead(notification.id);
+        setNotificationList(prev => 
+          prev.map(n => n.id === notification.id ? { ...n, read: true } : n)
+        );
+      }
+    } catch (error) {
+      console.error('Error marking notification as read:', error);
+    }
 
     // Navigate based on type
     switch (notification.type) {
       case 'job_match':
       case 'application_accepted':
+      case 'application_rejected':
+      case 'application_shortlisted':
         if (notification.jobId) {
           router.push(`/(worker)/job/${notification.jobId}`);
         }
@@ -42,18 +135,19 @@ export default function WorkerNotifications() {
           router.push(`/(worker)/chat/${notification.chatId}`);
         }
         break;
-      case 'payment':
-      case 'rating':
-        router.push('/(worker)/profile');
-        break;
       default:
         break;
     }
   };
 
-  const handleMarkAllRead = () => {
-    setNotificationList(prev => prev.map(n => ({ ...n, read: true })));
-    Alert.alert('Success', 'All notifications marked as read');
+  const handleMarkAllRead = async () => {
+    try {
+      await markAllNotificationsAsRead();
+      setNotificationList(prev => prev.map(n => ({ ...n, read: true })));
+      Alert.alert('Success', 'All notifications marked as read');
+    } catch (error) {
+      Alert.alert('Error', 'Failed to mark notifications as read');
+    }
   };
 
   const handleClearAll = () => {
@@ -65,7 +159,14 @@ export default function WorkerNotifications() {
         { 
           text: 'Clear', 
           style: 'destructive',
-          onPress: () => setNotificationList([])
+          onPress: async () => {
+            try {
+              await clearAllNotifications();
+              setNotificationList([]);
+            } catch (error) {
+              Alert.alert('Error', 'Failed to clear notifications');
+            }
+          }
         }
       ]
     );
@@ -98,6 +199,18 @@ export default function WorkerNotifications() {
       {!item.read && <View style={styles.unreadDot} />}
     </TouchableOpacity>
   );
+
+  if (isLoading) {
+    return (
+      <SafeAreaView style={styles.container} edges={['top']}>
+        <StatusBar barStyle="dark-content" backgroundColor={COLORS.white} />
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color={COLORS.worker.primary} />
+          <Text style={styles.loadingText}>Loading notifications...</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
@@ -198,6 +311,9 @@ export default function WorkerNotifications() {
           keyExtractor={(item) => item.id}
           showsVerticalScrollIndicator={false}
           contentContainerStyle={styles.notificationsList}
+          refreshControl={
+            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+          }
         />
       ) : (
         <View style={styles.emptyState}>
@@ -224,6 +340,16 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: COLORS.gray[50],
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingText: {
+    marginTop: SPACING.md,
+    fontSize: TYPOGRAPHY.sizes.base,
+    color: COLORS.gray[600],
   },
   header: {
     flexDirection: 'row',

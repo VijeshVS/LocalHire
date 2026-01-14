@@ -46,7 +46,24 @@ const verifyEmployee = (req, res, next) => {
   try {
     const decoded = jwt.verify(token, JWT_SECRET);
     if (decoded.role !== "EMPLOYEE") {
-        return res.status(403).json({ error: "Forbidden: Only employees can apply" });
+        return res.status(403).json({ error: "Forbidden: Only employees can access this resource" });
+    }
+    req.user = decoded;
+    next();
+  } catch (err) {
+    res.status(401).json({ error: "Invalid or expired token" });
+  }
+};
+
+// Middleware to verify the Employer's Token
+const verifyEmployer = (req, res, next) => {
+  const token = req.headers.authorization?.split(" ")[1];
+  if (!token) return res.status(401).json({ error: "Unauthorized: No token provided" });
+
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET);
+    if (decoded.role !== "EMPLOYER") {
+        return res.status(403).json({ error: "Forbidden: Only employers can access this resource" });
     }
     req.user = decoded;
     next();
@@ -58,5 +75,6 @@ const verifyEmployee = (req, res, next) => {
 module.exports = {
   verifyAdmin,
   verifyToken,
-  verifyEmployee
+  verifyEmployee,
+  verifyEmployer
 };

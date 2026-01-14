@@ -6,25 +6,24 @@ import {
   StyleSheet,
   StatusBar,
   Animated,
-  Dimensions,
+  Modal,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
 import { COLORS, SPACING, TYPOGRAPHY, RADIUS, SHADOWS } from '../constants/theme';
-
-const { width } = Dimensions.get('window');
 
 export default function LandingPage() {
   const [fadeAnim] = useState(new Animated.Value(0));
   const [slideAnim] = useState(new Animated.Value(30));
+  const [showRoleModal, setShowRoleModal] = useState(false);
+  const [authAction, setAuthAction] = useState<'login' | 'register'>('login');
 
   useEffect(() => {
     Animated.parallel([
       Animated.timing(fadeAnim, {
         toValue: 1,
-        duration: 1000,
+        duration: 800,
         useNativeDriver: true,
       }),
       Animated.spring(slideAnim, {
@@ -36,13 +35,32 @@ export default function LandingPage() {
     ]).start();
   }, []);
 
+  const handleAuthPress = (action: 'login' | 'register') => {
+    setAuthAction(action);
+    setShowRoleModal(true);
+  };
+
+  const handleRoleSelect = (role: 'worker' | 'employer') => {
+    setShowRoleModal(false);
+    if (authAction === 'login') {
+      router.push({
+        pathname: '/(auth)/login',
+        params: { role }
+      });
+    } else {
+      router.push({
+        pathname: '/(auth)/register',
+        params: { role }
+      });
+    }
+  };
+
   return (
     <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
       <StatusBar barStyle="dark-content" backgroundColor={COLORS.white} />
       
-      {/* Content Container */}
       <View style={styles.content}>
-        {/* Header Section */}
+        {/* Logo Section */}
         <Animated.View 
           style={[
             styles.headerSection,
@@ -52,127 +70,59 @@ export default function LandingPage() {
             }
           ]}
         >
-          {/* Minimal Logo */}
           <View style={styles.logoContainer}>
             <View style={styles.logo}>
-              <Ionicons name="business-outline" size={40} color={COLORS.worker.primary} />
+              <Ionicons name="business-outline" size={48} color={COLORS.worker.primary} />
             </View>
           </View>
 
-          {/* Brand */}
           <Text style={styles.brandName}>LocalHire</Text>
-          <Text style={styles.brandSubtitle}>Professional Workforce Solutions</Text>
-
-          {/* Subtle Stats */}
-          <View style={styles.statsRow}>
-            <View style={styles.miniStat}>
-              <Text style={styles.miniStatNumber}>1000+</Text>
-              <Text style={styles.miniStatLabel}>Workers</Text>
-            </View>
-            <View style={styles.statSeparator} />
-            <View style={styles.miniStat}>
-              <Text style={styles.miniStatNumber}>500+</Text>
-              <Text style={styles.miniStatLabel}>Jobs Daily</Text>
-            </View>
-            <View style={styles.statSeparator} />
-            <View style={styles.miniStat}>
-              <Text style={styles.miniStatNumber}>4.8★</Text>
-              <Text style={styles.miniStatLabel}>Rating</Text>
-            </View>
-          </View>
+          <Text style={styles.tagline}>Find local jobs. Hire local talent.</Text>
         </Animated.View>
 
-        {/* Main Content */}
+        {/* Welcome Message */}
         <Animated.View 
           style={[
-            styles.mainSection,
+            styles.welcomeSection,
             {
               opacity: fadeAnim,
               transform: [{ translateY: slideAnim }],
             }
           ]}
         >
-          {/* Value Proposition */}
-          <View style={styles.valueSection}>
-            <Text style={styles.valueTitle}>Connect with Local Opportunities</Text>
-            <Text style={styles.valueDescription}>
-              Streamlined platform for professional workforce management and local job discovery
-            </Text>
-          </View>
+          <Text style={styles.welcomeTitle}>Welcome!</Text>
+          <Text style={styles.welcomeSubtitle}>
+            Connect with opportunities in your neighborhood
+          </Text>
+        </Animated.View>
 
-          {/* Role Selection */}
-          <View style={styles.roleSection}>
-            <Text style={styles.roleSectionLabel}>Select Your Role</Text>
-            
-            {/* Worker Option */}
-            <TouchableOpacity
-              style={styles.roleOption}
-              onPress={() => router.push('/(worker)/home')}
-              activeOpacity={0.7}
-            >
-              <View style={styles.roleIconWrapper}>
-                <Ionicons name="person-outline" size={22} color={COLORS.worker.primary} />
-              </View>
-              <View style={styles.roleContent}>
-                <Text style={styles.roleTitle}>Worker</Text>
-                <Text style={styles.roleDesc}>Access job opportunities</Text>
-              </View>
-              <Ionicons name="chevron-forward" size={20} color={COLORS.gray[400]} />
-            </TouchableOpacity>
+        {/* Spacer */}
+        <View style={styles.spacer} />
 
-            {/* Employer Option */}
-            <TouchableOpacity
-              style={styles.roleOption}
-              onPress={() => router.push('/(employer)/dashboard')}
-              activeOpacity={0.7}
-            >
-              <View style={[styles.roleIconWrapper, { backgroundColor: COLORS.employer.bg }]}>
-                <Ionicons name="briefcase-outline" size={22} color={COLORS.employer.primary} />
-              </View>
-              <View style={styles.roleContent}>
-                <Text style={styles.roleTitle}>Employer</Text>
-                <Text style={styles.roleDesc}>Hire qualified workers</Text>
-              </View>
-              <Ionicons name="chevron-forward" size={20} color={COLORS.gray[400]} />
-            </TouchableOpacity>
-          </View>
+        {/* Action Buttons */}
+        <Animated.View 
+          style={[
+            styles.actionSection,
+            {
+              opacity: fadeAnim,
+            }
+          ]}
+        >
+          <TouchableOpacity
+            style={styles.primaryButton}
+            onPress={() => handleAuthPress('login')}
+            activeOpacity={0.8}
+          >
+            <Text style={styles.primaryButtonText}>Sign In</Text>
+          </TouchableOpacity>
 
-          {/* Action Buttons */}
-          <View style={styles.actionSection}>
-            <TouchableOpacity
-              style={styles.primaryButton}
-              onPress={() => router.push('/(auth)/login')}
-              activeOpacity={0.8}
-            >
-              <Text style={styles.primaryButtonText}>Sign In</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={styles.secondaryButton}
-              onPress={() => router.push('/(auth)/register')}
-              activeOpacity={0.8}
-            >
-              <Text style={styles.secondaryButtonText}>Create Account</Text>
-            </TouchableOpacity>
-          </View>
-
-          {/* Features */}
-          <View style={styles.featuresList}>
-            <View style={styles.featureItem}>
-              <Ionicons name="shield-checkmark-outline" size={16} color={COLORS.gray[600]} />
-              <Text style={styles.featureText}>Verified Profiles</Text>
-            </View>
-            <View style={styles.featureDot} />
-            <View style={styles.featureItem}>
-              <Ionicons name="flash-outline" size={16} color={COLORS.gray[600]} />
-              <Text style={styles.featureText}>Instant Matching</Text>
-            </View>
-            <View style={styles.featureDot} />
-            <View style={styles.featureItem}>
-              <Ionicons name="lock-closed-outline" size={16} color={COLORS.gray[600]} />
-              <Text style={styles.featureText}>Secure Payments</Text>
-            </View>
-          </View>
+          <TouchableOpacity
+            style={styles.secondaryButton}
+            onPress={() => handleAuthPress('register')}
+            activeOpacity={0.8}
+          >
+            <Text style={styles.secondaryButtonText}>Create Account</Text>
+          </TouchableOpacity>
         </Animated.View>
 
         {/* Footer */}
@@ -190,6 +140,64 @@ export default function LandingPage() {
           </TouchableOpacity>
         </View>
       </View>
+
+      {/* Role Selection Modal */}
+      <Modal
+        visible={showRoleModal}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={() => setShowRoleModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>
+                {authAction === 'login' ? 'Sign in as' : 'Create account as'}
+              </Text>
+              <TouchableOpacity 
+                style={styles.closeButton}
+                onPress={() => setShowRoleModal(false)}
+              >
+                <Ionicons name="close" size={24} color={COLORS.gray[600]} />
+              </TouchableOpacity>
+            </View>
+
+            <Text style={styles.modalSubtitle}>Choose your role to continue</Text>
+
+            {/* Worker Option */}
+            <TouchableOpacity
+              style={styles.roleOption}
+              onPress={() => handleRoleSelect('worker')}
+              activeOpacity={0.7}
+            >
+              <View style={[styles.roleIconWrapper, { backgroundColor: COLORS.worker.bg }]}>
+                <Ionicons name="person-outline" size={28} color={COLORS.worker.primary} />
+              </View>
+              <View style={styles.roleContent}>
+                <Text style={styles.roleTitle}>Worker</Text>
+                <Text style={styles.roleDesc}>Find jobs near you</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={22} color={COLORS.gray[400]} />
+            </TouchableOpacity>
+
+            {/* Employer Option */}
+            <TouchableOpacity
+              style={styles.roleOption}
+              onPress={() => handleRoleSelect('employer')}
+              activeOpacity={0.7}
+            >
+              <View style={[styles.roleIconWrapper, { backgroundColor: COLORS.employer.bg }]}>
+                <Ionicons name="briefcase-outline" size={28} color={COLORS.employer.primary} />
+              </View>
+              <View style={styles.roleContent}>
+                <Text style={styles.roleTitle}>Employer</Text>
+                <Text style={styles.roleDesc}>Hire local workers</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={22} color={COLORS.gray[400]} />
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -205,15 +213,14 @@ const styles = StyleSheet.create({
   },
   headerSection: {
     alignItems: 'center',
-    paddingTop: SPACING.xxl,
-    paddingBottom: SPACING.xl,
+    paddingTop: SPACING.xxl * 2,
   },
   logoContainer: {
-    marginBottom: SPACING.lg,
+    marginBottom: SPACING.xl,
   },
   logo: {
-    width: 80,
-    height: 80,
+    width: 100,
+    height: 100,
     borderRadius: RADIUS.xl,
     backgroundColor: COLORS.gray[50],
     borderWidth: 1,
@@ -222,107 +229,35 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   brandName: {
-    fontSize: 32,
+    fontSize: 36,
     fontWeight: TYPOGRAPHY.weights.bold,
-    color: COLORS.gray[900],
-    marginBottom: SPACING.xs,
-    letterSpacing: -0.5,
-  },
-  brandSubtitle: {
-    fontSize: TYPOGRAPHY.sizes.sm,
-    color: COLORS.gray[600],
-    fontWeight: TYPOGRAPHY.weights.medium,
-    marginBottom: SPACING.xl,
-  },
-  statsRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: COLORS.gray[50],
-    paddingVertical: SPACING.md,
-    paddingHorizontal: SPACING.xl,
-    borderRadius: RADIUS.full,
-    borderWidth: 1,
-    borderColor: COLORS.gray[200],
-  },
-  miniStat: {
-    alignItems: 'center',
-  },
-  miniStatNumber: {
-    fontSize: TYPOGRAPHY.sizes.base,
-    fontWeight: TYPOGRAPHY.weights.bold,
-    color: COLORS.gray[900],
-  },
-  miniStatLabel: {
-    fontSize: TYPOGRAPHY.sizes.xs,
-    color: COLORS.gray[600],
-    marginTop: 2,
-  },
-  statSeparator: {
-    width: 1,
-    height: 20,
-    backgroundColor: COLORS.gray[300],
-    marginHorizontal: SPACING.lg,
-  },
-  mainSection: {
-    flex: 1,
-  },
-  valueSection: {
-    marginBottom: SPACING.xxl,
-  },
-  valueTitle: {
-    fontSize: TYPOGRAPHY.sizes.xl,
-    fontWeight: TYPOGRAPHY.weights.semibold,
     color: COLORS.gray[900],
     marginBottom: SPACING.sm,
-    lineHeight: 28,
+    letterSpacing: -0.5,
   },
-  valueDescription: {
+  tagline: {
     fontSize: TYPOGRAPHY.sizes.base,
-    color: COLORS.gray[600],
-    lineHeight: 22,
+    color: COLORS.gray[500],
+    fontWeight: TYPOGRAPHY.weights.medium,
   },
-  roleSection: {
-    marginBottom: SPACING.xxl,
-  },
-  roleSectionLabel: {
-    fontSize: TYPOGRAPHY.sizes.sm,
-    fontWeight: TYPOGRAPHY.weights.semibold,
-    color: COLORS.gray[700],
-    marginBottom: SPACING.md,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-  },
-  roleOption: {
-    flexDirection: 'row',
+  welcomeSection: {
     alignItems: 'center',
-    backgroundColor: COLORS.white,
-    borderWidth: 1,
-    borderColor: COLORS.gray[200],
-    borderRadius: RADIUS.lg,
-    padding: SPACING.lg,
-    marginBottom: SPACING.md,
+    marginTop: SPACING.xxl * 2,
   },
-  roleIconWrapper: {
-    width: 48,
-    height: 48,
-    borderRadius: RADIUS.md,
-    backgroundColor: COLORS.worker.bg,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: SPACING.md,
-  },
-  roleContent: {
-    flex: 1,
-  },
-  roleTitle: {
-    fontSize: TYPOGRAPHY.sizes.base,
-    fontWeight: TYPOGRAPHY.weights.semibold,
+  welcomeTitle: {
+    fontSize: 28,
+    fontWeight: TYPOGRAPHY.weights.bold,
     color: COLORS.gray[900],
-    marginBottom: 2,
+    marginBottom: SPACING.sm,
   },
-  roleDesc: {
-    fontSize: TYPOGRAPHY.sizes.sm,
+  welcomeSubtitle: {
+    fontSize: TYPOGRAPHY.sizes.base,
     color: COLORS.gray[600],
+    textAlign: 'center',
+    lineHeight: 24,
+  },
+  spacer: {
+    flex: 1,
   },
   actionSection: {
     gap: SPACING.md,
@@ -330,51 +265,28 @@ const styles = StyleSheet.create({
   },
   primaryButton: {
     backgroundColor: COLORS.worker.primary,
-    paddingVertical: SPACING.lg,
+    paddingVertical: SPACING.lg + 2,
     borderRadius: RADIUS.lg,
     alignItems: 'center',
     ...SHADOWS.sm,
   },
   primaryButtonText: {
-    fontSize: TYPOGRAPHY.sizes.base,
+    fontSize: TYPOGRAPHY.sizes.lg,
     fontWeight: TYPOGRAPHY.weights.semibold,
     color: COLORS.white,
   },
   secondaryButton: {
     backgroundColor: COLORS.white,
-    paddingVertical: SPACING.lg,
+    paddingVertical: SPACING.lg + 2,
     borderRadius: RADIUS.lg,
     alignItems: 'center',
-    borderWidth: 1.5,
+    borderWidth: 2,
     borderColor: COLORS.gray[300],
   },
   secondaryButtonText: {
-    fontSize: TYPOGRAPHY.sizes.base,
+    fontSize: TYPOGRAPHY.sizes.lg,
     fontWeight: TYPOGRAPHY.weights.semibold,
     color: COLORS.gray[900],
-  },
-  featuresList: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: SPACING.md,
-  },
-  featureItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  featureText: {
-    fontSize: TYPOGRAPHY.sizes.xs,
-    color: COLORS.gray[600],
-    fontWeight: TYPOGRAPHY.weights.medium,
-  },
-  featureDot: {
-    width: 3,
-    height: 3,
-    borderRadius: 1.5,
-    backgroundColor: COLORS.gray[400],
-    marginHorizontal: SPACING.md,
   },
   footer: {
     flexDirection: 'row',
@@ -383,13 +295,80 @@ const styles = StyleSheet.create({
     paddingVertical: SPACING.lg,
   },
   footerLink: {
-    fontSize: TYPOGRAPHY.sizes.xs,
+    fontSize: TYPOGRAPHY.sizes.sm,
     color: COLORS.gray[500],
     fontWeight: TYPOGRAPHY.weights.medium,
   },
   footerDivider: {
     marginHorizontal: SPACING.md,
     color: COLORS.gray[400],
-    fontSize: TYPOGRAPHY.sizes.xs,
+    fontSize: TYPOGRAPHY.sizes.sm,
+  },
+  // Modal Styles
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'flex-end',
+  },
+  modalContent: {
+    backgroundColor: COLORS.white,
+    borderTopLeftRadius: RADIUS.xl,
+    borderTopRightRadius: RADIUS.xl,
+    paddingHorizontal: SPACING.xl,
+    paddingTop: SPACING.lg,
+    paddingBottom: SPACING.xxl + SPACING.lg,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: SPACING.xs,
+  },
+  modalTitle: {
+    fontSize: TYPOGRAPHY.sizes.xl,
+    fontWeight: TYPOGRAPHY.weights.bold,
+    color: COLORS.gray[900],
+  },
+  closeButton: {
+    width: 40,
+    height: 40,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalSubtitle: {
+    fontSize: TYPOGRAPHY.sizes.base,
+    color: COLORS.gray[500],
+    marginBottom: SPACING.xl,
+  },
+  roleOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: COLORS.white,
+    borderWidth: 1.5,
+    borderColor: COLORS.gray[200],
+    borderRadius: RADIUS.lg,
+    padding: SPACING.lg,
+    marginBottom: SPACING.md,
+  },
+  roleIconWrapper: {
+    width: 56,
+    height: 56,
+    borderRadius: RADIUS.md,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: SPACING.md,
+  },
+  roleContent: {
+    flex: 1,
+  },
+  roleTitle: {
+    fontSize: TYPOGRAPHY.sizes.lg,
+    fontWeight: TYPOGRAPHY.weights.semibold,
+    color: COLORS.gray[900],
+    marginBottom: 4,
+  },
+  roleDesc: {
+    fontSize: TYPOGRAPHY.sizes.sm,
+    color: COLORS.gray[500],
   },
 });

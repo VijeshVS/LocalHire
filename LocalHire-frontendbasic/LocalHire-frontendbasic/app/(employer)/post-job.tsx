@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -8,12 +8,14 @@ import {
   TextInput,
   StatusBar,
   Alert,
+  ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { COLORS, SPACING, TYPOGRAPHY, RADIUS, SHADOWS } from '../../constants/theme';
 import { createJob } from '../../services/jobService';
+import * as Location from 'expo-location';
 
 const jobCategories = [
   { id: 'painting', name: 'Painting', icon: 'brush' },
@@ -34,6 +36,7 @@ const urgencyOptions = [
 export default function PostJobScreen() {
   const [currentStep, setCurrentStep] = useState(1);
   const totalSteps = 4;
+  const [isGettingLocation, setIsGettingLocation] = useState(false);
 
   // Form state
   const [formData, setFormData] = useState({
@@ -41,14 +44,66 @@ export default function PostJobScreen() {
     category: '',
     description: '',
     location: '',
+    latitude: null as number | null,
+    longitude: null as number | null,
     pay: '',
     urgency: '',
     duration: '',
     workersNeeded: '1',
   });
 
-  const updateFormData = (field: string, value: string) => {
+  const updateFormData = (field: string, value: any) => {
     setFormData(prev => ({ ...prev, [field]: value }));
+  };
+
+  // Get current location
+  const getCurrentLocation = async () => {
+    try {
+      setIsGettingLocation(true);
+      
+      // Request permission
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permission Denied', 'Please enable location permissions to use this feature.');
+        return;
+      }
+
+      // Get current position
+      const location = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.Balanced,
+      });
+
+      const { latitude, longitude } = location.coords;
+      
+      // Try to get address from coordinates
+      try {
+        const [address] = await Location.reverseGeocodeAsync({ latitude, longitude });
+        if (address) {
+          const addressText = [
+            address.name,
+            address.street,
+            address.district,
+            address.city,
+            address.region
+          ].filter(Boolean).join(', ');
+          
+          updateFormData('location', addressText || `${latitude.toFixed(4)}, ${longitude.toFixed(4)}`);
+        }
+      } catch (geocodeError) {
+        // If geocoding fails, just use coordinates
+        updateFormData('location', `${latitude.toFixed(4)}, ${longitude.toFixed(4)}`);
+      }
+
+      updateFormData('latitude', latitude);
+      updateFormData('longitude', longitude);
+      
+      Alert.alert('Location Set', 'Your current location has been captured successfully!');
+    } catch (error: any) {
+      console.error('Location error:', error);
+      Alert.alert('Error', 'Failed to get location. Please enter address manually.');
+    } finally {
+      setIsGettingLocation(false);
+    }
   };
 
   const isStepValid = () => {
@@ -92,10 +147,27 @@ export default function PostJobScreen() {
       return;
     }
 
+    // Warn if no location coordinates
+    if (!formData.latitude || !formData.longitude) {
+      Alert.alert(
+        'Location Not Set',
+        'You haven\'t set your location. Workers search by location, so your job may not appear in their searches. Do you want to continue?',
+        [
+          { text: 'Set Location', style: 'cancel' },
+          { text: 'Continue Anyway', onPress: () => submitJob() }
+        ]
+      );
+      return;
+    }
+
+    submitJob();
+  };
+
+  const submitJob = async () => {
     setIsSubmitting(true);
 
     try {
-      const jobData = {
+      const jobData: any = {
         title: formData.title,
         category: formData.category,
         description: formData.description,
@@ -103,6 +175,14 @@ export default function PostJobScreen() {
         wage: parseInt(formData.pay) || 0,
         duration: formData.duration,
       };
+
+      // Include location coordinates if available
+      if (formData.latitude && formData.longitude) {
+        jobData.location = {
+          latitude: formData.latitude,
+          longitude: formData.longitude,
+        };
+      }
 
       await createJob(jobData);
 
@@ -123,6 +203,8 @@ export default function PostJobScreen() {
                 category: '',
                 description: '',
                 location: '',
+                latitude: null,
+                longitude: null,
                 pay: '',
                 urgency: '',
                 duration: '',
@@ -236,15 +318,38 @@ export default function PostJobScreen() {
           <Ionicons name="location" size={20} color={COLORS.gray[500]} />
           <TextInput
             style={styles.locationTextInput}
-            placeholder="Enter address or area"
+            placeholder="Enter address or use current location"
             placeholderTextColor={COLORS.gray[400]}
             value={formData.location}
             onChangeText={(text) => updateFormData('location', text)}
           />
-          <TouchableOpacity>
-            <Ionicons name="navigate" size={20} color={COLORS.employer.primary} />
-          </TouchableOpacity>
         </View>
+        
+        {/* Use Current Location Button */}
+        <TouchableOpacity 
+          style={styles.useLocationButton}
+          onPress={getCurrentLocation}
+          disabled={isGettingLocation}
+        >
+          {isGettingLocation ? (
+            <ActivityIndicator size="small" color={COLORS.employer.primary} />
+          ) : (
+            <>
+              <Ionicons name="navigate" size={18} color={COLORS.employer.primary} />
+              <Text style={styles.useLocationText}>Use Current Location</Text>
+            </>
+          )}
+        </TouchableOpacity>
+
+        {/* Location Status */}
+        {formData.latitude && formData.longitude && (
+          <View style={styles.locationStatus}>
+            <Ionicons name="checkmark-circle" size={16} color={COLORS.status.success} />
+            <Text style={styles.locationStatusText}>
+              Location captured ({formData.latitude.toFixed(4)}, {formData.longitude.toFixed(4)})
+            </Text>
+          </View>
+        )}
       </View>
     </View>
   );
@@ -366,6 +471,22 @@ export default function PostJobScreen() {
         <View style={styles.summaryRow}>
           <Text style={styles.summaryLabel}>Workers:</Text>
           <Text style={styles.summaryValue}>{formData.workersNeeded}</Text>
+        </View>
+        <View style={styles.summaryRow}>
+          <Text style={styles.summaryLabel}>Location:</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+            {formData.latitude && formData.longitude ? (
+              <>
+                <Ionicons name="checkmark-circle" size={14} color={COLORS.status.success} />
+                <Text style={[styles.summaryValue, { color: COLORS.status.success }]}>Set</Text>
+              </>
+            ) : (
+              <>
+                <Ionicons name="warning" size={14} color={COLORS.status.warning} />
+                <Text style={[styles.summaryValue, { color: COLORS.status.warning }]}>Not Set</Text>
+              </>
+            )}
+          </View>
         </View>
       </View>
     </View>
@@ -586,6 +707,34 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: TYPOGRAPHY.sizes.base,
     color: COLORS.gray[900],
+  },
+  useLocationButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: SPACING.md,
+    paddingHorizontal: SPACING.lg,
+    marginTop: SPACING.sm,
+    backgroundColor: COLORS.employer.bg,
+    borderRadius: RADIUS.md,
+    borderWidth: 1,
+    borderColor: COLORS.employer.primary,
+    gap: SPACING.sm,
+  },
+  useLocationText: {
+    fontSize: TYPOGRAPHY.sizes.sm,
+    fontWeight: TYPOGRAPHY.weights.medium,
+    color: COLORS.employer.primary,
+  },
+  locationStatus: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: SPACING.sm,
+    gap: SPACING.xs,
+  },
+  locationStatusText: {
+    fontSize: TYPOGRAPHY.sizes.xs,
+    color: COLORS.status.success,
   },
   payInput: {
     flexDirection: 'row',

@@ -66,26 +66,39 @@ exports.registerEmployer = async (req, res) => {
 
 /* ---------------- LOGIN EMPLOYER ---------------- */
 exports.loginEmployer = async (req, res) => {
-  const { email, password } = req.body;
+  try {
+    const { email, password } = req.body;
 
-  const { data: employer } = await supabase
-    .from("employers")
-    .select("*")
-    .eq("email", email)
-    .single();
+    const { data: employer, error } = await supabase
+      .from("employers")
+      .select("*")
+      .eq("email", email)
+      .single();
 
-  if (!employer) return res.status(401).json({ error: "Invalid credentials" });
+    if (error || !employer) return res.status(401).json({ error: "Invalid credentials" });
 
-  const match = await bcrypt.compare(password, employer.password_hash);
-  if (!match) return res.status(401).json({ error: "Invalid credentials" });
+    const match = await bcrypt.compare(password, employer.password_hash);
+    if (!match) return res.status(401).json({ error: "Invalid credentials" });
 
-  const token = jwt.sign(
-    { id: employer.id, role: "EMPLOYER" },
-    JWT_SECRET,
-    { expiresIn: "7d" }
-  );
+    const token = jwt.sign(
+      { id: employer.id, role: "EMPLOYER" },
+      JWT_SECRET,
+      { expiresIn: "7d" }
+    );
 
-  res.json({ token });
+    res.json({ 
+      token,
+      user: {
+        id: employer.id,
+        name: employer.name,
+        email: employer.email,
+        role: "EMPLOYER"
+      }
+    });
+  } catch (err) {
+    console.error("EMPLOYER LOGIN ERROR:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
 };
 
 /* ---------------- EMPLOYER PROFILE ---------------- */

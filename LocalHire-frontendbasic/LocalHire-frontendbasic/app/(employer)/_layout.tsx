@@ -69,6 +69,19 @@ export default function EmployerLayout() {
           ),
         }}
       />
+      <Tabs.Screen
+        name="messages"
+        options={{
+          title: 'Messages',
+          tabBarIcon: ({ color, size, focused }) => (
+            <Ionicons 
+              name={focused ? 'chatbubbles' : 'chatbubbles-outline'} 
+              size={size} 
+              color={color} 
+            />
+          ),
+        }}
+      />
       
       {/* Hidden screens */}
       <Tabs.Screen
@@ -87,6 +100,13 @@ export default function EmployerLayout() {
         name="settings"
         options={{
           href: null,
+        }}
+      />
+      <Tabs.Screen
+        name="chat/[id]"
+        options={{
+          href: null,
+          tabBarStyle: { display: 'none' },
         }}
       />
     </Tabs>

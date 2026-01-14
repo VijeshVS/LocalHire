@@ -19,7 +19,7 @@ import { COLORS, SPACING, TYPOGRAPHY, RADIUS, SHADOWS } from '../../../constants
 import { getConversationDetails, getMessages, sendMessage } from '../../../services/messageService';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-export default function ChatScreen() {
+export default function EmployerChatScreen() {
   const { id } = useLocalSearchParams();
   const [chatData, setChatData] = useState({
     id: '',
@@ -53,12 +53,12 @@ export default function ChatScreen() {
       const convDetails = await getConversationDetails(conversationId);
       
       const otherUser = convDetails.other_user;
-      const name = otherUser?.company_name || otherUser?.name || 'Unknown';
+      const name = otherUser?.name || 'Unknown';
       
       setChatData({
         id: conversationId,
         name: name,
-        role: convDetails.other_user_role === 'EMPLOYER' ? 'Employer' : 'Worker',
+        role: convDetails.other_user_role === 'EMPLOYEE' ? 'Worker' : 'Employer',
         jobTitle: convDetails.job?.title || 'General',
         online: false,
         avatar: name.split(' ').map((n: string) => n[0]).join('').toUpperCase().slice(0, 2),
@@ -69,7 +69,7 @@ export default function ChatScreen() {
       const formattedMsgs = msgs.map((msg: any) => ({
         id: msg.id,
         text: msg.text,
-        sender: msg.sender_id === userId ? 'worker' : 'employer',
+        sender: msg.sender_id === userId ? 'employer' : 'worker',
         timestamp: new Date(msg.created_at).toLocaleTimeString('en-US', { 
           hour: 'numeric', 
           minute: '2-digit',
@@ -103,7 +103,7 @@ export default function ChatScreen() {
     const tempMessage = {
       id: `temp-${Date.now()}`,
       text: messageText,
-      sender: 'worker',
+      sender: 'employer',
       timestamp: new Date().toLocaleTimeString('en-US', { 
         hour: 'numeric', 
         minute: '2-digit',
@@ -123,7 +123,7 @@ export default function ChatScreen() {
           ? {
               id: sentMsg.id,
               text: sentMsg.text,
-              sender: 'worker',
+              sender: 'employer',
               timestamp: new Date(sentMsg.created_at).toLocaleTimeString('en-US', { 
                 hour: 'numeric', 
                 minute: '2-digit',
@@ -141,35 +141,35 @@ export default function ChatScreen() {
   };
 
   const renderMessage = ({ item }: any) => {
-    const isWorker = item.sender === 'worker';
+    const isEmployer = item.sender === 'employer';
 
     return (
       <View style={[
         styles.messageContainer,
-        isWorker ? styles.messageContainerWorker : styles.messageContainerEmployer
+        isEmployer ? styles.messageContainerEmployer : styles.messageContainerWorker
       ]}>
         <View style={[
           styles.messageBubble,
-          isWorker ? styles.messageBubbleWorker : styles.messageBubbleEmployer
+          isEmployer ? styles.messageBubbleEmployer : styles.messageBubbleWorker
         ]}>
           <Text style={[
             styles.messageText,
-            isWorker ? styles.messageTextWorker : styles.messageTextEmployer
+            isEmployer ? styles.messageTextEmployer : styles.messageTextWorker
           ]}>
             {item.text}
           </Text>
           <View style={styles.messageFooter}>
             <Text style={[
               styles.timestamp,
-              isWorker ? styles.timestampWorker : styles.timestampEmployer
+              isEmployer ? styles.timestampEmployer : styles.timestampWorker
             ]}>
               {item.timestamp}
             </Text>
-            {isWorker && (
+            {isEmployer && (
               <Ionicons 
                 name={item.read ? 'checkmark-done' : 'checkmark'} 
                 size={16} 
-                color={item.read ? COLORS.worker.primary : COLORS.white}
+                color={item.read ? '#10b981' : COLORS.white}
                 style={{ marginLeft: 4 }}
               />
             )}
@@ -184,7 +184,7 @@ export default function ChatScreen() {
       <SafeAreaView style={styles.container} edges={['top']}>
         <StatusBar barStyle="dark-content" backgroundColor={COLORS.white} />
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={COLORS.worker.primary} />
+          <ActivityIndicator size="large" color="#6366f1" />
         </View>
       </SafeAreaView>
     );
@@ -213,7 +213,7 @@ export default function ChatScreen() {
           <View style={styles.headerInfo}>
             <Text style={styles.headerName}>{chatData.name}</Text>
             <Text style={styles.headerStatus}>
-              {isTyping ? 'typing...' : chatData.online ? 'online' : 'offline'}
+              {isTyping ? 'typing...' : chatData.role}
             </Text>
           </View>
         </TouchableOpacity>
@@ -222,80 +222,63 @@ export default function ChatScreen() {
           <TouchableOpacity style={styles.headerButton}>
             <Ionicons name="call-outline" size={22} color={COLORS.gray[700]} />
           </TouchableOpacity>
-          <TouchableOpacity style={styles.headerButton}>
-            <Ionicons name="ellipsis-vertical" size={22} color={COLORS.gray[700]} />
-          </TouchableOpacity>
         </View>
       </View>
 
       {/* Job Context Banner */}
       <View style={styles.contextBanner}>
-        <Ionicons name="briefcase" size={16} color={COLORS.worker.primary} />
-        <Text style={styles.contextText}>{chatData.jobTitle}</Text>
-        <TouchableOpacity>
-          <Text style={styles.contextLink}>View Details</Text>
-        </TouchableOpacity>
+        <Ionicons name="briefcase" size={16} color="#6366f1" />
+        <Text style={styles.contextText}>Re: {chatData.jobTitle}</Text>
       </View>
 
-      {/* Messages */}
-      <FlatList
-        ref={flatListRef}
-        data={messages}
-        renderItem={renderMessage}
-        keyExtractor={(item) => item.id}
-        contentContainerStyle={styles.messagesList}
-        showsVerticalScrollIndicator={false}
-        onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: true })}
-      />
-
-      {/* Typing Indicator */}
-      {isTyping && (
-        <View style={styles.typingIndicator}>
-          <View style={styles.typingBubble}>
-            <View style={styles.typingDot} />
-            <View style={[styles.typingDot, styles.typingDotDelay1]} />
-            <View style={[styles.typingDot, styles.typingDotDelay2]} />
-          </View>
-        </View>
-      )}
-
-      {/* Input Area */}
+      {/* Messages List */}
       <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        style={styles.messagesContainer}
         keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
       >
-        <View style={styles.inputContainer}>
-          <TouchableOpacity style={styles.attachButton}>
-            <Ionicons name="add-circle" size={28} color={COLORS.worker.primary} />
-          </TouchableOpacity>
+        <FlatList
+          ref={flatListRef}
+          data={messages}
+          renderItem={renderMessage}
+          keyExtractor={(item) => item.id}
+          contentContainerStyle={styles.messagesList}
+          showsVerticalScrollIndicator={false}
+          onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: true })}
+          ListEmptyComponent={
+            <View style={styles.emptyMessages}>
+              <Ionicons name="chatbubbles-outline" size={48} color={COLORS.gray[300]} />
+              <Text style={styles.emptyText}>No messages yet</Text>
+              <Text style={styles.emptySubtext}>Start the conversation!</Text>
+            </View>
+          }
+        />
 
+        {/* Input Area */}
+        <View style={styles.inputContainer}>
           <View style={styles.inputWrapper}>
             <TextInput
-              style={styles.input}
+              style={styles.textInput}
               placeholder="Type a message..."
               placeholderTextColor={COLORS.gray[400]}
               value={inputText}
               onChangeText={setInputText}
               multiline
-              maxLength={500}
+              maxLength={1000}
             />
-            <TouchableOpacity style={styles.emojiButton}>
-              <Ionicons name="happy-outline" size={22} color={COLORS.gray[500]} />
-            </TouchableOpacity>
           </View>
-
           <TouchableOpacity
             style={[
               styles.sendButton,
-              inputText.trim().length === 0 && styles.sendButtonDisabled
+              inputText.trim().length > 0 && styles.sendButtonActive
             ]}
             onPress={handleSend}
             disabled={inputText.trim().length === 0}
           >
-            <Ionicons 
-              name="send" 
-              size={20} 
-              color={inputText.trim().length > 0 ? COLORS.white : COLORS.gray[400]} 
+            <Ionicons
+              name="send"
+              size={20}
+              color={inputText.trim().length > 0 ? COLORS.white : COLORS.gray[400]}
             />
           </TouchableOpacity>
         </View>
@@ -318,9 +301,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: SPACING.md,
-    paddingVertical: SPACING.md,
+    paddingVertical: SPACING.sm,
     backgroundColor: COLORS.white,
-    ...SHADOWS.sm,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.gray[200],
   },
   backButton: {
     width: 40,
@@ -338,17 +322,17 @@ const styles = StyleSheet.create({
     position: 'relative',
   },
   avatar: {
-    width: 42,
-    height: 42,
-    borderRadius: RADIUS.full,
-    backgroundColor: COLORS.worker.light,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: '#6366f1',
     justifyContent: 'center',
     alignItems: 'center',
   },
   avatarText: {
-    fontSize: TYPOGRAPHY.sizes.lg,
+    fontSize: TYPOGRAPHY.sizes.base,
     fontWeight: TYPOGRAPHY.weights.bold,
-    color: COLORS.worker.primary,
+    color: COLORS.white,
   },
   onlineIndicator: {
     position: 'absolute',
@@ -357,7 +341,7 @@ const styles = StyleSheet.create({
     width: 12,
     height: 12,
     borderRadius: 6,
-    backgroundColor: COLORS.status.success,
+    backgroundColor: '#10b981',
     borderWidth: 2,
     borderColor: COLORS.white,
   },
@@ -370,114 +354,104 @@ const styles = StyleSheet.create({
     color: COLORS.gray[900],
   },
   headerStatus: {
-    fontSize: TYPOGRAPHY.sizes.xs,
-    color: COLORS.gray[600],
-    marginTop: 2,
+    fontSize: TYPOGRAPHY.sizes.sm,
+    color: COLORS.gray[500],
   },
   headerActions: {
     flexDirection: 'row',
-    gap: SPACING.sm,
   },
   headerButton: {
-    width: 36,
-    height: 36,
+    width: 40,
+    height: 40,
     justifyContent: 'center',
     alignItems: 'center',
   },
   contextBanner: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: COLORS.worker.bg,
     paddingHorizontal: SPACING.lg,
-    paddingVertical: SPACING.md,
-    gap: SPACING.sm,
+    paddingVertical: SPACING.sm,
+    backgroundColor: '#eef2ff',
+    gap: SPACING.xs,
   },
   contextText: {
-    flex: 1,
     fontSize: TYPOGRAPHY.sizes.sm,
-    color: COLORS.gray[700],
+    color: '#6366f1',
     fontWeight: TYPOGRAPHY.weights.medium,
   },
-  contextLink: {
-    fontSize: TYPOGRAPHY.sizes.sm,
-    color: COLORS.worker.primary,
-    fontWeight: TYPOGRAPHY.weights.semibold,
+  messagesContainer: {
+    flex: 1,
   },
   messagesList: {
     padding: SPACING.lg,
-    paddingBottom: SPACING.xl,
+    flexGrow: 1,
+  },
+  emptyMessages: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingTop: 100,
+  },
+  emptyText: {
+    fontSize: TYPOGRAPHY.sizes.lg,
+    fontWeight: TYPOGRAPHY.weights.medium,
+    color: COLORS.gray[500],
+    marginTop: SPACING.md,
+  },
+  emptySubtext: {
+    fontSize: TYPOGRAPHY.sizes.sm,
+    color: COLORS.gray[400],
+    marginTop: SPACING.xs,
   },
   messageContainer: {
-    marginBottom: SPACING.md,
-    maxWidth: '75%',
-  },
-  messageContainerWorker: {
-    alignSelf: 'flex-end',
+    marginBottom: SPACING.sm,
+    flexDirection: 'row',
   },
   messageContainerEmployer: {
-    alignSelf: 'flex-start',
+    justifyContent: 'flex-end',
+  },
+  messageContainerWorker: {
+    justifyContent: 'flex-start',
   },
   messageBubble: {
-    borderRadius: RADIUS.lg,
-    padding: SPACING.md,
-    ...SHADOWS.sm,
-  },
-  messageBubbleWorker: {
-    backgroundColor: COLORS.worker.primary,
-    borderBottomRightRadius: 4,
+    maxWidth: '80%',
+    paddingHorizontal: SPACING.lg,
+    paddingVertical: SPACING.md,
+    borderRadius: RADIUS.xl,
   },
   messageBubbleEmployer: {
+    backgroundColor: '#6366f1',
+    borderBottomRightRadius: RADIUS.sm,
+  },
+  messageBubbleWorker: {
     backgroundColor: COLORS.white,
-    borderBottomLeftRadius: 4,
+    borderBottomLeftRadius: RADIUS.sm,
+    ...SHADOWS.sm,
   },
   messageText: {
     fontSize: TYPOGRAPHY.sizes.base,
-    lineHeight: 20,
-  },
-  messageTextWorker: {
-    color: COLORS.white,
+    lineHeight: 22,
   },
   messageTextEmployer: {
+    color: COLORS.white,
+  },
+  messageTextWorker: {
     color: COLORS.gray[900],
   },
   messageFooter: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginTop: 4,
     justifyContent: 'flex-end',
+    marginTop: SPACING.xs,
   },
   timestamp: {
     fontSize: TYPOGRAPHY.sizes.xs,
   },
-  timestampWorker: {
-    color: 'rgba(255, 255, 255, 0.8)',
-  },
   timestampEmployer: {
-    color: COLORS.gray[500],
+    color: 'rgba(255, 255, 255, 0.7)',
   },
-  typingIndicator: {
-    paddingHorizontal: SPACING.lg,
-    paddingBottom: SPACING.sm,
-  },
-  typingBubble: {
-    flexDirection: 'row',
-    alignSelf: 'flex-start',
-    backgroundColor: COLORS.white,
-    borderRadius: RADIUS.lg,
-    padding: SPACING.md,
-    gap: 4,
-  },
-  typingDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: COLORS.gray[400],
-  },
-  typingDotDelay1: {
-    opacity: 0.7,
-  },
-  typingDotDelay2: {
-    opacity: 0.4,
+  timestampWorker: {
+    color: COLORS.gray[400],
   },
   inputContainer: {
     flexDirection: 'row',
@@ -489,46 +463,28 @@ const styles = StyleSheet.create({
     borderTopColor: COLORS.gray[200],
     gap: SPACING.sm,
   },
-  attachButton: {
-    width: 40,
-    height: 40,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
   inputWrapper: {
     flex: 1,
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    backgroundColor: COLORS.gray[50],
-    borderRadius: RADIUS.full,
+    backgroundColor: COLORS.gray[100],
+    borderRadius: RADIUS.xl,
     paddingHorizontal: SPACING.lg,
-    paddingVertical: SPACING.xs,
-    maxHeight: 100,
+    paddingVertical: SPACING.sm,
+    maxHeight: 120,
   },
-  input: {
-    flex: 1,
+  textInput: {
     fontSize: TYPOGRAPHY.sizes.base,
     color: COLORS.gray[900],
-    paddingVertical: SPACING.sm,
     maxHeight: 100,
-  },
-  emojiButton: {
-    width: 28,
-    height: 28,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginLeft: SPACING.xs,
   },
   sendButton: {
     width: 44,
     height: 44,
-    borderRadius: RADIUS.full,
-    backgroundColor: COLORS.worker.primary,
+    borderRadius: 22,
+    backgroundColor: COLORS.gray[200],
     justifyContent: 'center',
     alignItems: 'center',
-    ...SHADOWS.md,
   },
-  sendButtonDisabled: {
-    backgroundColor: COLORS.gray[200],
+  sendButtonActive: {
+    backgroundColor: '#6366f1',
   },
 });

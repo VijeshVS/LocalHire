@@ -182,3 +182,49 @@ export const removeSkillFromJob = async (jobId: string, skill_id: string): Promi
 
   return data;
 };
+
+// Get all active jobs (for workers to browse)
+export const getAllActiveJobs = async (): Promise<Job[]> => {
+  const token = await getToken();
+  
+  const response = await fetch(`${API_BASE_URL}/job-postings/all`, {
+    method: 'GET',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${token}`,
+    },
+  });
+
+  const data = await response.json();
+  
+  if (!response.ok) {
+    throw new Error(data.error || 'Failed to fetch jobs');
+  }
+
+  return data;
+};
+
+// Search jobs by title and/or category
+export const searchJobs = async (query?: string, category?: string): Promise<Job[]> => {
+  const token = await getToken();
+  
+  const params = new URLSearchParams();
+  if (query) params.append('query', query);
+  if (category) params.append('category', category);
+  
+  const response = await fetch(`${API_BASE_URL}/job-postings/search?${params.toString()}`, {
+    method: 'GET',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${token}`,
+    },
+  });
+
+  const data = await response.json();
+  
+  if (!response.ok) {
+    throw new Error(data.error || 'Failed to search jobs');
+  }
+
+  return data;
+};

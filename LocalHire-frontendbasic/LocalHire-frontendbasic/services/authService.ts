@@ -32,9 +32,12 @@ export const loginEmployee = async (email: string, password: string) => {
     const data = await handleResponse(response);
     console.log('✅ Login successful, token received');
 
-    // Store token and user type
+    // Store token, user type, and user ID
     await AsyncStorage.setItem(TOKEN_KEY, data.token);
     await AsyncStorage.setItem(USER_TYPE_KEY, 'worker');
+    if (data.user?.id) {
+      await AsyncStorage.setItem(USER_ID_KEY, data.user.id);
+    }
     
     return data;
   } catch (error) {
@@ -90,9 +93,12 @@ export const loginEmployer = async (email: string, password: string) => {
 
     const data = await handleResponse(response);
 
-    // Store token and user type
+    // Store token, user type, and user ID
     await AsyncStorage.setItem(TOKEN_KEY, data.token);
     await AsyncStorage.setItem(USER_TYPE_KEY, 'employer');
+    if (data.user?.id) {
+      await AsyncStorage.setItem(USER_ID_KEY, data.user.id);
+    }
     
     return data;
   } catch (error) {
@@ -141,9 +147,14 @@ export const getUserType = async () => {
   return await AsyncStorage.getItem(USER_TYPE_KEY);
 };
 
+export const getUserId = async () => {
+  return await AsyncStorage.getItem(USER_ID_KEY);
+};
+
 export const logout = async () => {
   await AsyncStorage.removeItem(TOKEN_KEY);
   await AsyncStorage.removeItem(USER_TYPE_KEY);
+  await AsyncStorage.removeItem(USER_ID_KEY);
 };
 
 export const isAuthenticated = async () => {

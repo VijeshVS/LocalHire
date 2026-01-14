@@ -8,20 +8,42 @@ exports.createJob = async (req, res) => {
     const employer_id = req.user.id;
     const id = crypto.randomUUID();
 
+    console.log("Creating job for employer:", employer_id);
+
+    // Validate required fields
+    if (!title || !category || !description || !wage || !duration) {
+      return res.status(400).json({ error: "Missing required fields: title, category, description, wage, duration" });
+    }
+
+    // Verify employer exists in database
+    const { data: employerExists, error: employerError } = await supabase
+      .from("employers")
+      .select("id")
+      .eq("id", employer_id)
+      .single();
+
+    if (employerError || !employerExists) {
+      console.error("Employer verification failed:", employerError);
+      return res.status(400).json({ error: "Employer account not found. Please login again." });
+    }
+
     const pointString = location 
       ? `POINT(${location.longitude} ${location.latitude})` 
       : null;
 
-    // 1. Insert the Job Posting
+    // 1. Insert the Job Posting (with is_active = true by default)
     const { data: jobData, error: jobError } = await supabase
       .from("job_postings")
       .insert({
-        id, employer_id, title, category, description, wage, duration, radius_km, address, location: pointString
+        id, employer_id, title, category, description, wage, duration, radius_km, address, location: pointString, is_active: true
       })
       .select()
       .single();
 
-    if (jobError) return res.status(400).json({ error: jobError.message });
+    if (jobError) {
+      console.error("Job creation error:", jobError);
+      return res.status(400).json({ error: jobError.message });
+    }
 
     // 2. Insert Skills (using IDs) if provided
     if (skill_ids && Array.isArray(skill_ids) && skill_ids.length > 0) {
@@ -41,8 +63,10 @@ exports.createJob = async (req, res) => {
       }
     }
 
+    console.log("Job created successfully:", id);
     res.status(201).json({ ...jobData, skill_ids: skill_ids || [] });
   } catch (err) {
+    console.error("Create job error:", err);
     res.status(500).json({ error: "Internal server error" });
   }
 };
@@ -191,6 +215,77 @@ exports.deleteJob = async (req, res) => {
     if (error) return res.status(400).json({ error: error.message });
     res.json({ message: "Job deleted successfully" });
   } catch (err) {
+    res.status(500).json({ error: "Internal server error" });
+  }
+};
+
+/* 7. GET ALL ACTIVE JOBS (For Workers) */
+exports.getAllActiveJobs = async (req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from("job_postings")
+      .select(`
+        *,
+        job_required_skills (
+          skills (id, skill_name)
+        )
+      `)
+      .or('is_active.eq.true,is_active.is.null')
+      .order("created_at", { ascending: false });
+
+    if (error) return res.status(400).json({ error: error.message });
+
+    const formattedData = data.map(job => {
+      const skills = job.job_required_skills?.map(s => s.skills) || [];
+      const { job_required_skills, ...rest } = job;
+      return { ...rest, skills };
+    });
+
+    res.json(formattedData);
+  } catch (err) {
+    console.error("Get all jobs error:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+};
+
+/* 8. SEARCH JOBS (For Workers) */
+exports.searchJobs = async (req, res) => {
+  try {
+    const { query, category } = req.query;
+    
+    let dbQuery = supabase
+      .from("job_postings")
+      .select(`
+        *,
+        job_required_skills (
+          skills (id, skill_name)
+        )
+      `)
+      .or('is_active.eq.true,is_active.is.null');
+
+    // Filter by category if provided
+    if (category && category !== 'all') {
+      dbQuery = dbQuery.eq("category", category);
+    }
+
+    // Search by title if query provided
+    if (query) {
+      dbQuery = dbQuery.ilike("title", `%${query}%`);
+    }
+
+    const { data, error } = await dbQuery.order("created_at", { ascending: false });
+
+    if (error) return res.status(400).json({ error: error.message });
+
+    const formattedData = data.map(job => {
+      const skills = job.job_required_skills?.map(s => s.skills) || [];
+      const { job_required_skills, ...rest } = job;
+      return { ...rest, skills };
+    });
+
+    res.json(formattedData);
+  } catch (err) {
+    console.error("Search jobs error:", err);
     res.status(500).json({ error: "Internal server error" });
   }
 };

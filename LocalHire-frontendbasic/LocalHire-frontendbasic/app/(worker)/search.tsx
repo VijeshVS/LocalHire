@@ -15,6 +15,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { COLORS, SPACING, TYPOGRAPHY, RADIUS, SHADOWS } from '../../constants/theme';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { findNearbyJobs } from '../../services/locationService';
+import { searchJobs } from '../../services/jobService';
+import * as Location from 'expo-location';
 
 const jobCategories = [
   { id: 'all', name: 'All Jobs', icon: 'briefcase' as const, count: 0, color: COLORS.gray[700] },
@@ -31,32 +33,71 @@ export default function WorkerSearch() {
   const [showFilters, setShowFilters] = useState(false);
   const [searchResults, setSearchResults] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [userLocation, setUserLocation] = useState<{latitude: number, longitude: number} | null>(null);
+  const [locationName, setLocationName] = useState<string>('Getting location...');
 
   useEffect(() => {
-    fetchNearbyJobs();
+    getUserLocationAndFetchJobs();
   }, []);
 
-  const fetchNearbyJobs = async () => {
+  const getUserLocationAndFetchJobs = async () => {
     try {
       setIsLoading(true);
-      // Default coordinates (can be replaced with actual user location)
-      const latitude = 12.9716;  // Bangalore default
-      const longitude = 77.5946;
-      const radiusKm = 10;
+      
+      // Request location permission
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') {
+        setLocationName('Location not available');
+        setIsLoading(false);
+        return;
+      }
 
-      const jobs = await findNearbyJobs(latitude, longitude, radiusKm);
+      // Get current location
+      const location = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.Balanced,
+      });
+      
+      const { latitude, longitude } = location.coords;
+      setUserLocation({ latitude, longitude });
+
+      // Get location name
+      try {
+        const [address] = await Location.reverseGeocodeAsync({ latitude, longitude });
+        if (address) {
+          const name = address.district || address.city || address.region || 'Your Location';
+          setLocationName(name);
+        }
+      } catch {
+        setLocationName('Your Location');
+      }
+
+      // Fetch jobs near user's location
+      await fetchJobsAtLocation(latitude, longitude);
+    } catch (error) {
+      console.error('Location error:', error);
+      setLocationName('Location error');
+      setIsLoading(false);
+    }
+  };
+
+  // Fetch location-based jobs (default view)
+  const fetchJobsAtLocation = async (latitude: number, longitude: number) => {
+    try {
+      setIsLoading(true);
+      
+      const jobs = await findNearbyJobs(latitude, longitude, 50);
       
       if (jobs && jobs.length > 0) {
         const formattedJobs = jobs.map((job: any) => ({
           id: job.id,
           title: job.title,
           company: 'Employer',
-          distance: job.distance_km ? `${job.distance_km.toFixed(1)}km` : 'N/A',
+          distance: job.distance_km ? `${job.distance_km.toFixed(1)}km` : (job.dist_km ? `${job.dist_km.toFixed(1)}km` : 'N/A'),
           pay: job.wage || 0,
           urgency: 'today',
           location: job.address || 'N/A',
           rating: 4.0,
-          category: 'General'
+          category: job.category || 'general'
         }));
         setSearchResults(formattedJobs);
       } else {
@@ -64,6 +105,56 @@ export default function WorkerSearch() {
       }
     } catch (error) {
       console.error('Error fetching nearby jobs:', error);
+      setSearchResults([]);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Refresh with current location
+  const refreshNearbyJobs = () => {
+    if (userLocation) {
+      fetchJobsAtLocation(userLocation.latitude, userLocation.longitude);
+    } else {
+      getUserLocationAndFetchJobs();
+    }
+  };
+
+  // Search database when user enters a keyword
+  const handleSearch = async () => {
+    const query = searchQuery.trim();
+    
+    // If no search query, show location-based jobs
+    if (!query) {
+      refreshNearbyJobs();
+      return;
+    }
+    
+    try {
+      setIsLoading(true);
+      
+      // Search database with keyword
+      const category = selectedCategory === 'all' ? undefined : selectedCategory;
+      const jobs = await searchJobs(query, category);
+      
+      if (jobs && jobs.length > 0) {
+        const formattedJobs = jobs.map((job: any) => ({
+          id: job.id,
+          title: job.title,
+          company: 'Employer',
+          distance: job.dist_km ? `${job.dist_km.toFixed(1)}km` : 'N/A',
+          pay: job.wage || 0,
+          urgency: 'today',
+          location: job.address || 'N/A',
+          rating: 4.0,
+          category: job.category || 'general'
+        }));
+        setSearchResults(formattedJobs);
+      } else {
+        setSearchResults([]);
+      }
+    } catch (error) {
+      console.error('Error searching jobs:', error);
       setSearchResults([]);
     } finally {
       setIsLoading(false);
@@ -185,6 +276,21 @@ export default function WorkerSearch() {
         </TouchableOpacity>
       </View>
 
+      {/* Location Bar */}
+      <View style={styles.locationBar}>
+        <View style={styles.locationInfo}>
+          <Ionicons name="location" size={18} color={COLORS.worker.primary} />
+          <Text style={styles.locationText}>{locationName}</Text>
+        </View>
+        <TouchableOpacity 
+          style={styles.refreshLocationButton} 
+          onPress={getUserLocationAndFetchJobs}
+        >
+          <Ionicons name="refresh" size={16} color={COLORS.worker.primary} />
+          <Text style={styles.refreshLocationText}>Refresh</Text>
+        </TouchableOpacity>
+      </View>
+
       {/* Search Bar */}
       <View style={styles.searchSection}>
         <View style={styles.searchBar}>
@@ -195,12 +301,17 @@ export default function WorkerSearch() {
             placeholderTextColor={COLORS.gray[400]}
             value={searchQuery}
             onChangeText={setSearchQuery}
+            onSubmitEditing={handleSearch}
+            returnKeyType="search"
           />
           {searchQuery.length > 0 && (
-            <TouchableOpacity onPress={() => setSearchQuery('')}>
+            <TouchableOpacity onPress={() => { setSearchQuery(''); handleSearch(); }}>
               <Ionicons name="close-circle" size={20} color={COLORS.gray[400]} />
             </TouchableOpacity>
           )}
+          <TouchableOpacity onPress={handleSearch} style={{ marginLeft: 8 }}>
+            <Ionicons name="arrow-forward-circle" size={28} color={COLORS.worker.primary} />
+          </TouchableOpacity>
         </View>
       </View>
 
@@ -320,8 +431,42 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.gray[50],
     justifyContent: 'center',
     alignItems: 'center',
+  },  locationBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: SPACING.xl,
+    paddingVertical: SPACING.sm,
+    backgroundColor: COLORS.gray[50],
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.gray[200],
   },
-  searchSection: {
+  locationInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACING.xs,
+  },
+  locationText: {
+    fontSize: TYPOGRAPHY.sizes.sm,
+    color: COLORS.gray[700],
+    fontWeight: TYPOGRAPHY.weights.medium,
+  },
+  refreshLocationButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACING.xs,
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.xs,
+    borderRadius: RADIUS.full,
+    backgroundColor: COLORS.white,
+    borderWidth: 1,
+    borderColor: COLORS.worker.primary,
+  },
+  refreshLocationText: {
+    fontSize: TYPOGRAPHY.sizes.xs,
+    color: COLORS.worker.primary,
+    fontWeight: TYPOGRAPHY.weights.medium,
+  },  searchSection: {
     paddingHorizontal: SPACING.xl,
     paddingVertical: SPACING.lg,
     backgroundColor: COLORS.white,

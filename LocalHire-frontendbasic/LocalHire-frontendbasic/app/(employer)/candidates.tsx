@@ -15,6 +15,7 @@ import { router } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { getMyJobs } from '../../services/jobService';
 import { getJobApplications, updateApplicationStatus } from '../../services/employerApplicationService';
+import { getOrCreateConversation } from '../../services/messageService';
 
 const filterOptions = [
   { id: 'all', label: 'All Applications', count: 0 },
@@ -46,13 +47,17 @@ export default function Candidates() {
       for (const job of jobs) {
         try {
           const applications = await getJobApplications(job.id);
+          console.log('Applications for job', job.id, ':', JSON.stringify(applications, null, 2));
           applications.forEach((app: any) => {
             // Backend returns 'employees' not 'employee', and uses 'name' not 'first_name/last_name'
             const employeeData = app.employees || app.employee;
+            console.log('Employee data:', employeeData);
             const employeeName = employeeData?.name || 'Unknown';
             
             allApplications.push({
               id: app.id,
+              employeeId: employeeData?.id, // Store employee ID for messaging
+              jobId: job.id, // Store job ID for conversation context
               name: employeeName,
               email: employeeData?.email || '',
               phone: employeeData?.phone || '',
@@ -148,7 +153,26 @@ export default function Candidates() {
         ]);
         break;
       case 'message':
-        Alert.alert('Message', `Send message to ${candidate.name}?`);
+        console.log('Message candidate:', candidate);
+        console.log('Employee ID:', candidate.employeeId);
+        if (!candidate.employeeId) {
+          Alert.alert('Error', 'Cannot message this candidate - no employee ID found');
+          return;
+        }
+        try {
+          console.log('Creating conversation with:', candidate.employeeId, 'EMPLOYEE', candidate.jobId);
+          const conversation = await getOrCreateConversation(
+            candidate.employeeId,
+            'EMPLOYEE',
+            candidate.jobId
+          );
+          console.log('Conversation created:', conversation);
+          // Navigate to chat screen with the conversation ID
+          router.push(`/(employer)/chat/${conversation.id}`);
+        } catch (error) {
+          console.error('Error creating conversation:', error);
+          Alert.alert('Error', 'Failed to start conversation');
+        }
         break;
       case 'call':
         Alert.alert('Call', `Calling ${candidate.name}...`);

@@ -21,6 +21,8 @@ const employerJobApplnRoute=require('./Routers/EmployerJobApplnRoute.js');
 const adminRoute=require('./Routers/AdminRoute.js');
 const skillRoute=require('./Routers/SkillRoute.js');
 const locationRoute=require('./Routers/LocationRoute.js');
+const notificationRoute=require('./Routers/NotificationRoute.js');
+const messageRoute=require('./Routers/MessageRoute.js');
 
 app.use('/api/employer',employerRoute);
 app.use('/api/employee',employeeRoute);
@@ -30,6 +32,8 @@ app.use('/api/employer-job-applications',employerJobApplnRoute);
 app.use('/api/admin',adminRoute);
 app.use('/api/skills',skillRoute);
 app.use('/api/location',locationRoute);
+app.use('/api/notifications',notificationRoute);
+app.use('/api/messages',messageRoute);
 
 app.get('/',(req,res)=>{
     res.send('Hello World!');
