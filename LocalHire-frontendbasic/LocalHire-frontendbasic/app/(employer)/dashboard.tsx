@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { 
-  View, 
-  Text, 
-  TouchableOpacity, 
+import {
+  View,
+  Text,
+  TouchableOpacity,
   StyleSheet,
   ScrollView,
   FlatList,
@@ -63,7 +63,7 @@ export default function EmployerDashboard() {
     const diffMs = now.getTime() - date.getTime();
     const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
     const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-    
+
     if (diffHours < 1) return 'Just now';
     if (diffHours < 24) return `${diffHours} hours ago`;
     if (diffDays === 1) return '1 day ago';
@@ -73,39 +73,39 @@ export default function EmployerDashboard() {
   const getStatusConfig = (status: JobStatus) => {
     switch (status) {
       case 'searching':
-        return { 
-          icon: 'search' as const, 
-          color: COLORS.employer.primary, 
-          text: 'Searching for worker...', 
-          pulse: true 
+        return {
+          icon: 'search' as const,
+          color: COLORS.employer.primary,
+          text: 'Searching for worker...',
+          pulse: true
         };
       case 'assigned':
-        return { 
-          icon: 'checkmark-circle' as const, 
-          color: COLORS.worker.primary, 
-          text: 'Worker Assigned', 
-          pulse: false 
+        return {
+          icon: 'checkmark-circle' as const,
+          color: COLORS.worker.primary,
+          text: 'Worker Assigned',
+          pulse: false
         };
       case 'on_the_way':
-        return { 
-          icon: 'navigate' as const, 
-          color: COLORS.status.info, 
-          text: 'Worker on the way (5 min)', 
-          pulse: true 
+        return {
+          icon: 'navigate' as const,
+          color: COLORS.status.info,
+          text: 'Worker on the way (5 min)',
+          pulse: true
         };
       case 'in_progress':
-        return { 
-          icon: 'flash' as const, 
-          color: COLORS.status.warning, 
-          text: 'Job in progress', 
-          pulse: true 
+        return {
+          icon: 'flash' as const,
+          color: COLORS.status.warning,
+          text: 'Job in progress',
+          pulse: true
         };
       default:
-        return { 
-          icon: 'checkmark-done' as const, 
-          color: COLORS.system.primary, 
-          text: 'Completed', 
-          pulse: false 
+        return {
+          icon: 'checkmark-done' as const,
+          color: COLORS.system.primary,
+          text: 'Completed',
+          pulse: false
         };
     }
   };
@@ -175,7 +175,7 @@ export default function EmployerDashboard() {
         </View>
 
         {/* Primary Action */}
-        <TouchableOpacity 
+        <TouchableOpacity
           style={[styles.primaryButton, { backgroundColor: statusConfig.color }]}
           onPress={() => router.push('/(employer)/jobs')}
         >
@@ -191,7 +191,7 @@ export default function EmployerDashboard() {
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
       <StatusBar barStyle="dark-content" backgroundColor={COLORS.white} />
-      
+
       {/* Header */}
       <View style={styles.header}>
         <View>
@@ -205,7 +205,7 @@ export default function EmployerDashboard() {
               <Text style={styles.badgeText}>2</Text>
             </View>
           </TouchableOpacity>
-          <TouchableOpacity 
+          <TouchableOpacity
             style={styles.iconButton}
             onPress={() => router.push('/(employer)/settings')}
           >
@@ -214,7 +214,7 @@ export default function EmployerDashboard() {
         </View>
       </View>
 
-      <ScrollView 
+      <ScrollView
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.content}
       >
@@ -239,7 +239,7 @@ export default function EmployerDashboard() {
 
         {/* Quick Actions */}
         <View style={styles.quickActions}>
-          <TouchableOpacity 
+          <TouchableOpacity
             style={styles.actionButton}
             onPress={() => router.push('/(employer)/post-job')}
           >
@@ -248,19 +248,30 @@ export default function EmployerDashboard() {
             </View>
             <Text style={styles.actionText}>Post New Job</Text>
           </TouchableOpacity>
-          
+
           <TouchableOpacity style={styles.actionButton}>
             <View style={[styles.actionIcon, { backgroundColor: COLORS.worker.bg }]}>
               <Ionicons name="people" size={28} color={COLORS.worker.primary} />
             </View>
             <Text style={styles.actionText}>View Candidates</Text>
           </TouchableOpacity>
-          
+
           <TouchableOpacity style={styles.actionButton}>
             <View style={[styles.actionIcon, { backgroundColor: '#fef3c7' }]}>
               <Ionicons name="star" size={28} color={COLORS.status.warning} />
             </View>
             <Text style={styles.actionText}>Rate Workers</Text>
+          </TouchableOpacity>
+
+          {/* New FastHire Button */}
+          <TouchableOpacity
+            style={styles.actionButton}
+            onPress={() => router.push('/(employer)/fast-hire')}
+          >
+            <View style={[styles.actionIcon, { backgroundColor: '#e0f7fa' }]}>
+              <Ionicons name="flash" size={28} color="#00796b" />
+            </View>
+            <Text style={styles.actionText}>FastHire</Text>
           </TouchableOpacity>
         </View>
 
@@ -272,7 +283,7 @@ export default function EmployerDashboard() {
               <Text style={styles.seeAllText}>See All</Text>
             </TouchableOpacity>
           </View>
-          
+
           {isLoading ? (
             <View style={{ padding: 40, alignItems: 'center' }}>
               <ActivityIndicator size="large" color={COLORS.employer.primary} />
@@ -297,7 +308,7 @@ export default function EmployerDashboard() {
       </ScrollView>
 
       {/* FAB */}
-      <TouchableOpacity 
+      <TouchableOpacity
         style={styles.fab}
         onPress={() => router.push('/(employer)/post-job')}
       >

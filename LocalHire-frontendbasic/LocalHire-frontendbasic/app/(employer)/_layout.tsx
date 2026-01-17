@@ -97,6 +97,12 @@ export default function EmployerLayout() {
         }}
       />
       <Tabs.Screen
+        name="fast-hire"
+        options={{
+          href: null,
+        }}
+      />
+      <Tabs.Screen
         name="settings"
         options={{
           href: null,
