@@ -252,6 +252,18 @@ export default function WorkerHome() {
         </TouchableOpacity>
       </View>
 
+      {/* Quick Access */}
+      <View style={styles.quickAccessContainer}>
+        <TouchableOpacity 
+          style={styles.quickAccessButton}
+          onPress={() => router.push('/(worker)/my-jobs')}
+        >
+          <Ionicons name="briefcase" size={20} color={COLORS.worker.primary} />
+          <Text style={styles.quickAccessText}>My Jobs</Text>
+          <Ionicons name="chevron-forward" size={16} color={COLORS.gray[400]} />
+        </TouchableOpacity>
+      </View>
+
       <FlatList
         data={nearbyJobs}
         renderItem={renderJobCard}
@@ -470,6 +482,26 @@ const styles = StyleSheet.create({
     fontSize: TYPOGRAPHY.sizes.sm,
     color: COLORS.worker.primary,
     fontWeight: TYPOGRAPHY.weights.medium,
+  },
+  quickAccessContainer: {
+    paddingHorizontal: SPACING.xl,
+    paddingTop: SPACING.md,
+    paddingBottom: SPACING.sm,
+  },
+  quickAccessButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: COLORS.white,
+    borderRadius: RADIUS.md,
+    padding: SPACING.md,
+    gap: SPACING.sm,
+    ...SHADOWS.sm,
+  },
+  quickAccessText: {
+    flex: 1,
+    fontSize: TYPOGRAPHY.sizes.base,
+    fontWeight: TYPOGRAPHY.weights.medium,
+    color: COLORS.gray[900],
   },
   listContainer: {
     padding: SPACING.xl,

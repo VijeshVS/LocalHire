@@ -4,7 +4,7 @@ const { supabase } = require("../config/SupabaseClient.js");
 /* 1. CREATE JOB POSTING */
 exports.createJob = async (req, res) => {
   try {
-    const { title, category, description, wage, duration, radius_km, location, address, skill_ids } = req.body;
+    const { title, category, description, wage, duration, radius_km, location, address, skill_ids, scheduled_date, scheduled_start_time, scheduled_end_time, duration_hours } = req.body;
     const employer_id = req.user.id;
     const id = crypto.randomUUID();
 
@@ -32,11 +32,29 @@ exports.createJob = async (req, res) => {
       : null;
 
     // 1. Insert the Job Posting (with is_active = true by default)
+    const jobInsertData = {
+      id, 
+      employer_id, 
+      title, 
+      category, 
+      description, 
+      wage, 
+      duration, 
+      radius_km, 
+      address, 
+      location: pointString, 
+      is_active: true
+    };
+
+    // Add scheduling fields if provided
+    if (scheduled_date) jobInsertData.scheduled_date = scheduled_date;
+    if (scheduled_start_time) jobInsertData.scheduled_start_time = scheduled_start_time;
+    if (scheduled_end_time) jobInsertData.scheduled_end_time = scheduled_end_time;
+    if (duration_hours) jobInsertData.duration_hours = duration_hours;
+
     const { data: jobData, error: jobError } = await supabase
       .from("job_postings")
-      .insert({
-        id, employer_id, title, category, description, wage, duration, radius_km, address, location: pointString, is_active: true
-      })
+      .insert(jobInsertData)
       .select()
       .single();
 

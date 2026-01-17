@@ -1,21 +1,21 @@
 const express = require("express");
 const router = express.Router();
 const employeeAppController = require("../Controllers/JobApplicationController.js");
-const { verifyEmployee } = require("../Middleware/Authentication.js");
+const { verifyEmployee, verifyToken } = require("../Middleware/Authentication.js");
 
-// Apply middleware to all routes in this file
-router.use(verifyEmployee);
+// Routes that require employee verification
+router.post("/apply", verifyEmployee, employeeAppController.applyForJob);
+router.get("/my-applications", verifyEmployee, employeeAppController.getMyApplications);
+router.get("/application/:id", verifyEmployee, employeeAppController.getApplicationById);
+router.delete("/withdraw/:application_id", verifyEmployee, employeeAppController.withdrawApplication);
 
-// POST: Apply for a job
-router.post("/apply", employeeAppController.applyForJob);
+// Worker marks job as completed
+router.patch("/:application_id/complete", verifyEmployee, employeeAppController.markJobCompleted);
 
-// GET: All applications for the logged-in employee
-router.get("/my-applications", employeeAppController.getMyApplications);
+// Employer confirms job completion (uses verifyToken to allow employer access)
+router.patch("/:application_id/confirm-completion", verifyToken, employeeAppController.confirmJobCompletion);
 
-// GET: Details of a specific application
-router.get("/application/:id", employeeAppController.getApplicationById);
-
-// DELETE: Withdraw an application
-router.delete("/withdraw/:application_id", employeeAppController.withdrawApplication);
+// Employer gets pending confirmations
+router.get("/pending-confirmations", verifyToken, employeeAppController.getPendingConfirmations);
 
 module.exports = router;

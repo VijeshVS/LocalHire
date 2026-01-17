@@ -15,6 +15,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { COLORS, SPACING, TYPOGRAPHY, RADIUS, SHADOWS } from '../../constants/theme';
 import { useAuth } from '../../context/AuthContext';
 import { getEmployeeProfile } from '../../services/profileService';
+import { getWorkerAnalytics } from '../../services/analyticsService';
 
 export default function WorkerProfile() {
   const { user } = useAuth();
@@ -37,26 +38,25 @@ export default function WorkerProfile() {
 
   useEffect(() => {
     fetchProfile();
+    fetchAnalytics();
   }, []);
 
   const fetchProfile = async () => {
     try {
       const data = await getEmployeeProfile();
-      setProfile({
+      setProfile((prev: any) => ({
+        ...prev,
         name: data.name || '',
         email: data.email || '',
         phone: data.phone || '',
         rating: data.rating || 0,
-        totalJobs: 0,
-        completionRate: 0,
-        earnings: { today: 0, week: 0, month: 0 },
         skills: data.skills?.map((s: any) => s.skill_name) || [],
         years_of_experience: data.years_of_experience ? `${data.years_of_experience} years` : '0 years',
         languages: data.language ? [data.language] : [],
         status: data.status || 'active',
         verified: data.status === 'active',
         address: data.address || '',
-      });
+      }));
       setAvailability(data.status === 'active' ? 'Available' : 'Offline');
     } catch (error) {
       console.log('Error fetching profile:', error);
@@ -68,6 +68,24 @@ export default function WorkerProfile() {
           phone: user.phone || '',
         }));
       }
+    }
+  };
+
+  const fetchAnalytics = async () => {
+    try {
+      const data = await getWorkerAnalytics();
+      setProfile((prev: any) => ({
+        ...prev,
+        totalJobs: data.overview.completedJobs,
+        completionRate: data.overview.completionRate,
+        earnings: {
+          today: 0,
+          week: 0,
+          month: data.overview.totalEarnings,
+        },
+      }));
+    } catch (error) {
+      console.log('Error fetching analytics:', error);
     } finally {
       setIsLoading(false);
     }

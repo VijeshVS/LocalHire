@@ -8,7 +8,8 @@ import {
   FlatList,
   Alert,
   Modal,
-  ActivityIndicator
+  ActivityIndicator,
+  TextInput
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
@@ -16,6 +17,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { getMyJobs } from '../../services/jobService';
 import { getJobApplications, updateApplicationStatus } from '../../services/employerApplicationService';
 import { getOrCreateConversation } from '../../services/messageService';
+import { confirmJobCompletion } from '../../services/jobCompletionService';
 
 const filterOptions = [
   { id: 'all', label: 'All Applications', count: 0 },
@@ -31,6 +33,10 @@ export default function Candidates() {
   const [isLoading, setIsLoading] = useState(true);
   const [selectedCandidate, setSelectedCandidate] = useState<any | null>(null);
   const [showCandidateModal, setShowCandidateModal] = useState(false);
+  const [showConfirmModal, setShowConfirmModal] = useState(false);
+  const [workerRating, setWorkerRating] = useState(0);
+  const [workerReview, setWorkerReview] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
     fetchCandidates();
@@ -78,6 +84,7 @@ export default function Candidates() {
               applicationId: app.id,
               reviews: [],
               language: employeeData?.language || 'N/A',
+              work_status: app.work_status || 'pending', // Add work status tracking
             });
           });
         } catch (err) {
@@ -132,6 +139,12 @@ export default function Candidates() {
           }
         ]);
         break;
+      case 'confirm_complete':
+        setSelectedCandidate(candidate);
+        setWorkerRating(0);
+        setWorkerReview('');
+        setShowConfirmModal(true);
+        break;
       case 'reject':
         Alert.alert('Reject', `Reject ${candidate.name}'s application?`, [
           { text: 'Cancel', style: 'cancel' },
@@ -179,6 +192,27 @@ export default function Candidates() {
         break;
       default:
         break;
+    }
+  };
+
+  const handleConfirmCompletion = async () => {
+    if (!selectedCandidate) return;
+    
+    try {
+      setIsSubmitting(true);
+      await confirmJobCompletion(
+        selectedCandidate.applicationId,
+        workerRating > 0 ? workerRating : undefined,
+        workerReview || undefined
+      );
+      
+      Alert.alert('Success', 'Job completion confirmed!');
+      setShowConfirmModal(false);
+      await fetchCandidates();
+    } catch (error: any) {
+      Alert.alert('Error', error.message || 'Failed to confirm completion');
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -245,6 +279,24 @@ export default function Candidates() {
         <Text style={styles.appliedJobLabel}>Applied for:</Text>
         <Text style={styles.appliedJobTitle}>{item.appliedFor}</Text>
         <Text style={styles.appliedTime}>{item.appliedAt}</Text>
+        
+        {/* Work Status Badge */}
+        {item.status === 'accepted' && (
+          <View style={[
+            styles.workStatusBadge,
+            item.work_status === 'completed' && styles.completedStatusBadge,
+            item.work_status === 'in_progress' && styles.inProgressStatusBadge
+          ]}>
+            <Text style={[
+              styles.workStatusText,
+              item.work_status === 'completed' && styles.completedStatusText,
+              item.work_status === 'in_progress' && styles.inProgressStatusText
+            ]}>
+              {item.work_status === 'completed' ? 'Awaiting Confirmation' : 
+               item.work_status === 'in_progress' ? 'Work In Progress' : 'Pending'}
+            </Text>
+          </View>
+        )}
       </View>
 
       {/* Skills */}
@@ -298,12 +350,23 @@ export default function Candidates() {
           <Ionicons name="call-outline" size={18} color="#16a34a" />
         </TouchableOpacity>
         
-        <TouchableOpacity
-          style={styles.hireButton}
-          onPress={() => handleCandidateAction('hire', item)}
-        >
-          <Text style={styles.hireButtonText}>Hire</Text>
-        </TouchableOpacity>
+        {/* Show confirm complete button if worker marked as completed */}
+        {item.work_status === 'completed' ? (
+          <TouchableOpacity
+            style={styles.confirmButton}
+            onPress={() => handleCandidateAction('confirm_complete', item)}
+          >
+            <Ionicons name="checkmark-circle" size={18} color="white" />
+            <Text style={styles.confirmButtonText}>Confirm Complete</Text>
+          </TouchableOpacity>
+        ) : (
+          <TouchableOpacity
+            style={styles.hireButton}
+            onPress={() => handleCandidateAction('hire', item)}
+          >
+            <Text style={styles.hireButtonText}>Hire</Text>
+          </TouchableOpacity>
+        )}
       </View>
     </View>
   );
@@ -473,6 +536,83 @@ export default function Candidates() {
                 </View>
               </>
             )}
+          </View>
+        </View>
+      </Modal>
+
+      {/* Confirm Completion Modal */}
+      <Modal
+        visible={showConfirmModal}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={() => setShowConfirmModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Confirm Job Completion</Text>
+              <TouchableOpacity onPress={() => setShowConfirmModal(false)}>
+                <Ionicons name="close" size={24} color="#374151" />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView style={styles.modalBody}>
+              <Text style={styles.confirmText}>
+                Confirm that {selectedCandidate?.name} has successfully completed the job.
+              </Text>
+
+              <Text style={styles.inputLabel}>Rate Worker</Text>
+              <View style={styles.ratingStarsContainer}>
+                {[1, 2, 3, 4, 5].map((star) => (
+                  <TouchableOpacity
+                    key={star}
+                    onPress={() => setWorkerRating(star)}
+                    style={styles.starButton}
+                  >
+                    <Ionicons
+                      name={star <= workerRating ? 'star' : 'star-outline'}
+                      size={32}
+                      color={star <= workerRating ? '#fbbf24' : '#d1d5db'}
+                    />
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              {workerRating > 0 && (
+                <>
+                  <Text style={styles.inputLabel}>Review (Optional)</Text>
+                  <TextInput
+                    style={styles.textArea}
+                    placeholder="Share your feedback about this worker..."
+                    placeholderTextColor="#9ca3af"
+                    value={workerReview}
+                    onChangeText={setWorkerReview}
+                    multiline
+                    numberOfLines={4}
+                  />
+                </>
+              )}
+            </ScrollView>
+
+            <View style={styles.modalFooter}>
+              <TouchableOpacity
+                style={styles.cancelButton}
+                onPress={() => setShowConfirmModal(false)}
+              >
+                <Text style={styles.cancelButtonText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.confirmSubmitButton}
+                onPress={handleConfirmCompletion}
+                disabled={isSubmitting}
+              >
+                {isSubmitting ? (
+                  <ActivityIndicator color="white" />
+                ) : (
+                  <Text style={styles.confirmSubmitButtonText}>Confirm</Text>
+                )}
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
       </Modal>
@@ -676,6 +816,29 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#9ca3af',
   },
+  workStatusBadge: {
+    marginTop: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 12,
+    alignSelf: 'flex-start',
+  },
+  inProgressStatusBadge: {
+    backgroundColor: '#dbeafe',
+  },
+  completedStatusBadge: {
+    backgroundColor: '#fef3c7',
+  },
+  workStatusText: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  inProgressStatusText: {
+    color: '#2563eb',
+  },
+  completedStatusText: {
+    color: '#d97706',
+  },
   skillsContainer: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -750,6 +913,86 @@ const styles = StyleSheet.create({
     color: 'white',
     fontSize: 14,
     fontWeight: '600',
+  },
+  confirmButton: {
+    flex: 1,
+    flexDirection: 'row',
+    backgroundColor: '#16a34a',
+    borderRadius: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 8,
+    gap: 4,
+  },
+  confirmButtonText: {
+    color: 'white',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  confirmText: {
+    fontSize: 14,
+    color: '#374151',
+    marginBottom: 16,
+  },
+  inputLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#1f2937',
+    marginBottom: 8,
+    marginTop: 16,
+  },
+  ratingStarsContainer: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 8,
+    marginVertical: 16,
+  },
+  starButton: {
+    padding: 4,
+  },
+  textArea: {
+    backgroundColor: '#f9fafb',
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    borderRadius: 8,
+    padding: 12,
+    fontSize: 14,
+    color: '#1f2937',
+    textAlignVertical: 'top',
+    minHeight: 100,
+  },
+  modalFooter: {
+    flexDirection: 'row',
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    borderTopWidth: 1,
+    borderTopColor: '#e5e7eb',
+    gap: 12,
+  },
+  cancelButton: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#d1d5db',
+    alignItems: 'center',
+  },
+  cancelButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#374151',
+  },
+  confirmSubmitButton: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 8,
+    backgroundColor: '#16a34a',
+    alignItems: 'center',
+  },
+  confirmSubmitButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: 'white',
   },
   modalOverlay: {
     flex: 1,

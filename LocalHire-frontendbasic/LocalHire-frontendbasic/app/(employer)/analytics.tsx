@@ -11,7 +11,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import Icon from '../../components/Icon';
-import { getMyJobs } from '../../services/jobService';
+import { getEmployerAnalytics } from '../../services/analyticsService';
 
 const { width } = Dimensions.get('window');
 
@@ -25,11 +25,17 @@ export default function Analytics() {
       activeJobs: 0,
       completedJobs: 0,
       totalSpent: 0,
+      totalApplications: 0,
       totalHires: 0,
       avgJobCompletion: 0,
     },
-    recentActivity: [] as any[],
-    topCategories: [] as any[],
+    applications: {
+      total: 0,
+      accepted: 0,
+      shortlisted: 0,
+      rejected: 0,
+      pending: 0,
+    },
     monthlyStats: [] as any[],
   });
 
@@ -40,25 +46,8 @@ export default function Analytics() {
   const fetchAnalytics = async () => {
     try {
       setIsLoading(true);
-      const jobs = await getMyJobs();
-      
-      const activeJobs = jobs.filter((j: any) => j.is_active).length;
-      const completedJobs = jobs.filter((j: any) => !j.is_active).length;
-      const totalSpent = jobs.reduce((sum: number, j: any) => sum + (j.wage || 0), 0);
-      
-      setAnalyticsData({
-        overview: {
-          totalJobs: jobs.length,
-          activeJobs,
-          completedJobs,
-          totalSpent,
-          totalHires: 0,
-          avgJobCompletion: 0,
-        },
-        recentActivity: [],
-        topCategories: [],
-        monthlyStats: [],
-      });
+      const data = await getEmployerAnalytics();
+      setAnalyticsData(data);
     } catch (error) {
       console.error('Error fetching analytics:', error);
     } finally {
@@ -224,35 +213,31 @@ export default function Analytics() {
               {renderOverviewCard('Total Spent', `₹${analyticsData.overview.totalSpent.toLocaleString()}`, 'All time', 'wallet', '#f59e0b')}
             </View>
 
-            {/* Quick Stats */}
+            {/* Applications Stats */}
             <View style={styles.quickStats}>
-              <Text style={styles.sectionTitle}>Quick Stats</Text>
+              <Text style={styles.sectionTitle}>Applications</Text>
               <View style={styles.statsGrid}>
                 <View style={styles.statItem}>
-                  <Text style={styles.statValue}>{analyticsData.overview.totalHires}</Text>
-                  <Text style={styles.statLabel}>Total Hires</Text>
+                  <Text style={styles.statValue}>{analyticsData.applications.total}</Text>
+                  <Text style={styles.statLabel}>Total</Text>
                 </View>
                 <View style={styles.statItem}>
-                  <Text style={styles.statValue}>{analyticsData.overview.avgJobCompletion}</Text>
-                  <Text style={styles.statLabel}>Avg. Days to Complete</Text>
+                  <Text style={[styles.statValue, { color: '#16a34a' }]}>{analyticsData.applications.accepted}</Text>
+                  <Text style={styles.statLabel}>Accepted</Text>
                 </View>
                 <View style={styles.statItem}>
-                  <Text style={styles.statValue}>₹{Math.round(analyticsData.overview.totalSpent / analyticsData.overview.totalHires)}</Text>
-                  <Text style={styles.statLabel}>Avg. Cost per Hire</Text>
+                  <Text style={[styles.statValue, { color: '#f59e0b' }]}>{analyticsData.applications.shortlisted}</Text>
+                  <Text style={styles.statLabel}>Shortlisted</Text>
+                </View>
+                <View style={styles.statItem}>
+                  <Text style={[styles.statValue, { color: '#6b7280' }]}>{analyticsData.applications.pending}</Text>
+                  <Text style={styles.statLabel}>Pending</Text>
                 </View>
               </View>
             </View>
 
-            {/* Recent Activity */}
-            <View style={styles.section}>
-              <View style={styles.sectionHeader}>
-                <Text style={styles.sectionTitle}>Recent Activity</Text>
-                <TouchableOpacity>
-                  <Text style={styles.viewAll}>View All</Text>
-                </TouchableOpacity>
-              </View>
-              {analyticsData.recentActivity.slice(0, 4).map(renderActivityItem)}
-            </View>
+            {/* Monthly Chart */}
+            {analyticsData.monthlyStats.length > 0 && renderChart()}
           </>
         )}
 

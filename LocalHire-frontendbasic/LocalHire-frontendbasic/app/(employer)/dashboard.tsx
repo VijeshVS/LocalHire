@@ -15,6 +15,7 @@ import { router } from 'expo-router';
 import { COLORS, SPACING, TYPOGRAPHY, RADIUS, SHADOWS } from '../../constants/theme';
 import { useAuth } from '../../context/AuthContext';
 import { getMyJobs } from '../../services/jobService';
+import PendingConfirmationsModal from '../../components/PendingConfirmationsModal';
 
 type JobStatus = 'searching' | 'assigned' | 'on_the_way' | 'in_progress' | 'completed';
 
@@ -22,9 +23,15 @@ export default function EmployerDashboard() {
   const { user } = useAuth();
   const [activeJobs, setActiveJobs] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [showPendingModal, setShowPendingModal] = useState(false);
 
   useEffect(() => {
     fetchJobs();
+    // Show pending confirmations modal after a short delay
+    const timer = setTimeout(() => {
+      setShowPendingModal(true);
+    }, 1000);
+    return () => clearTimeout(timer);
   }, []);
 
   const fetchJobs = async () => {
@@ -296,6 +303,15 @@ export default function EmployerDashboard() {
       >
         <Ionicons name="add" size={28} color={COLORS.white} />
       </TouchableOpacity>
+
+      {/* Pending Confirmations Modal */}
+      <PendingConfirmationsModal
+        visible={showPendingModal}
+        onClose={() => setShowPendingModal(false)}
+        onAllConfirmed={() => {
+          fetchJobs(); // Refresh job list after confirmations
+        }}
+      />
     </SafeAreaView>
   );
 }

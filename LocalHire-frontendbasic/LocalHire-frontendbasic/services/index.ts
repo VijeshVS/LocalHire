@@ -7,3 +7,5 @@ export * from './applicationService';
 export * from './skillService';
 export * from './locationService';
 export * from './employerApplicationService';
+export * from './analyticsService';
+export * from './jobCompletionService';
