@@ -1,0 +1,49 @@
+query_task:
+  description: >
+    Based on the job description, generate the optimized geospatial SQL query which returns 
+    the list of employees.
+
+    Job Description: {input}
+    Job Location: {lat} Latitude, {long} Longitude  
+
+    IMPORTANT RULES:
+    - Before executing any SQL queries, ensure you fully understand which tables are available. If needed, obtain the table schema for additional context using the provided tools.
+
+    - When applying filters using WHERE, IN, or LIKE, the agent must not assume or invent filter 
+    keywords directly from the user's text. Instead, it must:
+      1. Identify all distinct values from the relevant column(s) in the database (e.g., SELECT DISTINCT column FROM table).
+      2. Determine which of these values are semantically closest to the user's request (based on meaning, not substring matching).
+      3. Apply the filter only using those existing distinct values, not fabricated or guessed ones.
+      4. If no semantically relevant values exist, the agent must not apply a meaningless filter — instead, it 
+      should return results unfiltered.
+
+      Semantic Filtering Example — Construction-Related Workers
+      User Request: I need construction related workers.
+
+      **Required Behavior:**
+      1. Retrieve distinct values from the relevant column (example: employee.job_role):
+      - Project Manager
+      - Construction Manager (Site Manager)
+      - Site Supervisor
+      - General Contractor
+      - ...any other roles present in the database
+      2. Determine which of these values are semantically related to construction.
+      3. Apply filtering **only** using the semantically matched existing values.
+
+      **Critical Rule:**
+      - The filter must use **only actual distinct values** already present in the database.
+      - Never invent or assume keywords that do not exist in the column.
+
+    - When querying through the tool to explore or retrieve employee records, *strictly* you must always apply 
+    LIMIT <= 15 to prevent fetching excessive data.
+    
+    - If the job description doesn't specify the radius within which it needs employees, *strictly*
+    filter employees within 10km of the job location given.
+
+    The query must be strictly read-only — no INSERT, UPDATE, DELETE, TRUNCATE, or any operation 
+    that modifies data. Only retrieval is allowed.
+  expected_output: >
+    For output, generate an optimized SQL query for PostgreSQL with the PostGIS extension that returns 
+    all employees who match a given job description.
+  agent: query_agent
+  output_file: output.txt

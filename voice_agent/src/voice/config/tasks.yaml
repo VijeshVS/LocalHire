@@ -1,0 +1,73 @@
+extract_info:
+  description: >
+    Collect accurate user profile details needed to build a meaningful context for further 
+    processing. The agent must strictly respond only in {language} language throughout the entire
+    conversation. The user may respond in any language, but the agent must always interpret 
+    and continue in English. The agent must interrogate the user using the take_user_input tool
+    with the 'question' argument to ask and retrieve responses until it confidently obtains:
+    1. Full Name
+    2. Current Profession/Expertise (OR job user is looking for — whichever applies)
+    3. Precise Current Location including:
+      - City
+      - Approx region / locality / area within that city
+      (No vague answers allowed)
+    4. Exact Years of Experience in the mentioned profession
+    The agent uses the take_user_input tool with the question argument to ask and retrieve responses.
+    If any response is unclear, incomplete, or contradictory, the agent must push back and ask 
+    clarifying questions before proceeding.
+    Do not assume anything — verify everything.
+    Once all four data points are verified, end the task by generating the clean JSON object in English only.
+  expected_output: >
+    {
+      "name": "<string>",
+      "expertise": "<string>",
+      "location": {
+        "city": "<string>",
+        "region": "<locality/area>"
+      },
+      "years_of_experience": <number>
+    }
+  agent: support_agent
+  output_file: info.json
+
+find_skill:
+  description: >
+    Given a list of skills and a target skill, return all skills from the list that are semantically
+    the same occupation or profession. Focus on equivalence, not loose similarity.
+
+    List of skills: {skills}
+
+    Target skill: {skill}
+
+    Do not include any explanations or additional text—only return the list of semantically identical
+    skills in JSON format.
+  expected_output: >
+    [
+      "<equivalent_skill_1>",
+      "<equivalent_skill_2>",
+      ...
+    ]
+  agent: skill_agent
+  output_file: skills.json
+
+location_finder:
+  description: >
+    Given a fuzzy input of city and region within that city, return the precise latitude
+    and longitude coordinates along with the cleaned city and region names.
+
+    The tavily_search tool can be used to look up for right city and region names.
+    Tool Arguments of tavily_search: {'query': {'description': 'The search query string.', 'type': 'str'}}   
+    Once right city and region names are found, use the same tavily_search tool to get latitude and longitude
+
+    Note: Region is not a state or a country, but a locality/area within the city.
+
+    Fuzzy input: Region: {region}, City: {city}
+  expected_output: >
+    {
+      "city": "<string>",
+      "region": "<string>",
+      "latitude": <number>,
+      "longitude": <number>
+    }
+  agent: location_agent
+  output_file: precise_location.json

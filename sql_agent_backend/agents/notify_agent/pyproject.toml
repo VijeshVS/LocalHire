@@ -1,0 +1,25 @@
+[project]
+name = "notify_agent"
+version = "0.1.0"
+description = "notify_agent using crewAI"
+authors = [{ name = "Your Name", email = "you@example.com" }]
+requires-python = ">=3.10,<3.14"
+dependencies = [
+    "crewai[tools]==1.6.1",
+    "supabase>=2.27.0",
+]
+
+[project.scripts]
+notify_agent = "notify_agent.main:run"
+run_crew = "notify_agent.main:run"
+train = "notify_agent.main:train"
+replay = "notify_agent.main:replay"
+test = "notify_agent.main:test"
+run_with_trigger = "notify_agent.main:run_with_trigger"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.crewai]
+type = "crew"

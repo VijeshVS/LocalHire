@@ -73,3 +73,10 @@ ios/
 
 # Debug
 *.log
+
+*.txt
+*.json
+
+.venv
+
+__pycache__
