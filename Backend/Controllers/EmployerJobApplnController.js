@@ -80,7 +80,10 @@ exports.updateApplicationStatus = async (req, res) => {
       .select()
       .single();
 
-    if (error) return res.status(400).json({ error: error.message });
+    if (error) {
+      console.error("Error updating application status:", error);
+      return res.status(400).json({ error: error.message || "Failed to update application status" });
+    }
 
     // Get employer name for notification
     const { data: employer } = await supabase

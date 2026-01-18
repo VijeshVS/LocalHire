@@ -1,4 +1,4 @@
-const supabase = require("../config/SupabaseClient.js");
+const { supabase } = require("../config/SupabaseClient.js");
 
 /* --- EMPLOYER ANALYTICS --- */
 exports.getEmployerAnalytics = async (req, res) => {
@@ -11,7 +11,10 @@ exports.getEmployerAnalytics = async (req, res) => {
       .select("id, wage, is_active, created_at")
       .eq("employer_id", employerId);
 
-    if (jobsError) throw jobsError;
+    if (jobsError) {
+      console.error("Jobs query error:", jobsError);
+      throw jobsError;
+    }
 
     // Get all applications for employer's jobs
     const jobIds = jobs.map(j => j.id);
@@ -48,7 +51,10 @@ exports.getEmployerAnalytics = async (req, res) => {
       .select("id, status, work_status, job_posting_id, completed_at")
       .in("job_posting_id", jobIds);
 
-    if (appsError) throw appsError;
+    if (appsError) {
+      console.error("Applications query error:", appsError);
+      throw appsError;
+    }
 
     // Ensure applications is an array
     const safeApplications = applications || [];
@@ -100,7 +106,12 @@ exports.getEmployerAnalytics = async (req, res) => {
     });
   } catch (err) {
     console.error("Error fetching employer analytics:", err);
-    res.status(500).json({ error: "Internal server error" });
+    console.error("Error details:", err.message, err.stack);
+    res.status(500).json({ 
+      error: "Internal server error",
+      message: err.message,
+      details: process.env.NODE_ENV === 'development' ? err.stack : undefined
+    });
   }
 };
 

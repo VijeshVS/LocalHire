@@ -120,11 +120,12 @@ exports.getEmployeeProfile = async (req, res) => {
 
     const decoded = jwt.verify(token, JWT_SECRET);
 
-    // Fetch employee details AND their linked skills
+    // Fetch employee details AND their linked skills AND busy status
     const { data, error } = await supabase
       .from("employees")
       .select(`
         id, name, email, phone, years_of_experience, address, language, rating, status, user_type, created_at,
+        busy_until, current_job_id,
         employee_skills (
           skills (
             id,
@@ -141,7 +142,8 @@ exports.getEmployeeProfile = async (req, res) => {
     // Flatten the skills array for a cleaner API response
     const formattedData = {
       ...data,
-      skills: data.employee_skills.map(item => item.skills)
+      skills: data.employee_skills.map(item => item.skills),
+      is_busy: data.busy_until ? new Date(data.busy_until) > new Date() : false
     };
 
     // Remove the nested original key to keep it clean
