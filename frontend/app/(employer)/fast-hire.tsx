@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -14,6 +14,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { COLORS, SPACING, TYPOGRAPHY, RADIUS, SHADOWS } from '../../constants/theme';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import Constants from 'expo-constants';
 
 interface FastHireWorker {
   id: string;
@@ -64,7 +65,7 @@ export default function FastHireScreen() {
 
     setIsLoading(true);
     setError(null);
-    const YOUR_MACHINE_IP = '172.20.10.14';
+    const YOUR_MACHINE_IP = Constants.expoConfig?.extra?.sqlPilotUrl || "";
     const userId = await AsyncStorage.getItem('user_id');
 
     try {

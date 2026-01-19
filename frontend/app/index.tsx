@@ -7,10 +7,14 @@ import {
   StatusBar,
   Animated,
   Modal,
+  ToastAndroid,
+  Platform,
+  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { COLORS, SPACING, TYPOGRAPHY, RADIUS, SHADOWS } from '../constants/theme';
 
 export default function LandingPage() {
@@ -20,6 +24,8 @@ export default function LandingPage() {
   const [authAction, setAuthAction] = useState<'login' | 'register'>('login');
 
   useEffect(() => {
+    checkExistingAuth();
+    
     Animated.parallel([
       Animated.timing(fadeAnim, {
         toValue: 1,
@@ -34,6 +40,30 @@ export default function LandingPage() {
       }),
     ]).start();
   }, []);
+
+  const showToast = (message: string) => {
+    if (Platform.OS === 'android') {
+      ToastAndroid.show(message, ToastAndroid.SHORT);
+    } else {
+      Alert.alert('', message);
+    }
+  };
+
+  const checkExistingAuth = async () => {
+    try {
+      const userType = await AsyncStorage.getItem('user_type');
+      
+      if (userType === 'worker') {
+        showToast('Already logged in');
+        router.replace('/(worker)/home');
+      } else if (userType === 'employer') {
+        showToast('Already logged in');
+        router.replace('/(employer)/dashboard');
+      }
+    } catch (error) {
+      console.error('Error checking auth:', error);
+    }
+  };
 
   const handleAuthPress = (action: 'login' | 'register') => {
     setAuthAction(action);
