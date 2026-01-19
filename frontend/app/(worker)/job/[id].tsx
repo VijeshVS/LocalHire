@@ -90,11 +90,12 @@ export default function JobDetails() {
   const [hasApplied, setHasApplied] = useState(false);
   const [applicationStatus, setApplicationStatus] = useState<string | null>(null);
   const audioTimeoutRef = useRef<any>(null);
+  const [isCreatingChat, setIsCreatingChat] = useState(false);
 
   useEffect(() => {
     fetchJobDetails();
     checkApplicationStatus();
-  }, [id]);
+  }, []);
 
   const checkApplicationStatus = async () => {
     try {
@@ -286,7 +287,7 @@ export default function JobDetails() {
     ]);
   };
 
-  const [isCreatingChat, setIsCreatingChat] = useState(false);
+  
 
   const handleMessage = async () => {
     if (!job?.employer_id) {

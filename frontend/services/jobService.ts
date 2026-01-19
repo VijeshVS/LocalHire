@@ -30,6 +30,9 @@ export interface Job {
   skills?: { id: string; skill_name: string }[];
   dist_km?: number;
   distance_km?: number;
+  scheduled_start_time?: string;
+  scheduled_end_time?: string;
+  scheduled_date?: string;
 }
 
 // Get all jobs for the logged-in employer
