@@ -19,13 +19,14 @@ exports.getJobApplications = async (req, res) => {
       return res.status(403).json({ error: "Unauthorized or job not found" });
     }
 
-    // Fetch applications with employee details
+    // Fetch applications with employee details and work_status
     const { data, error } = await supabase
       .from("job_applications")
       .select(`
         id,
         status,
         applied_at,
+        work_status,
         employees (
           id,
           name,

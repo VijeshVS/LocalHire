@@ -8,49 +8,153 @@ import {
   Alert,
   Modal,
   ActivityIndicator,
+  RefreshControl,
+  ScrollView,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import Icon from '../../components/Icon';
 import { getMyJobs, deleteJob as deleteJobApi } from '../../services/jobService';
-import { COLORS } from '../../constants/theme';
+import { getJobApplications } from '../../services/employerApplicationService';
+import { COLORS, SPACING, RADIUS } from '../../constants/theme';
+
+type TabType = 'pending' | 'inprogress' | 'completed' | 'all';
+
+interface EnhancedJob {
+  id: string;
+  title: string;
+  category: string;
+  status: string;
+  applicants: number;
+  budget: string;
+  posted: string;
+  urgency: string;
+  location: string;
+  description: string;
+  views: number;
+  hired: number;
+  applications: any[];
+  hiredWorkers: any[];
+  pendingApplications: number;
+  acceptedApplications: number;
+  work_status: string;
+  scheduled_date?: string;
+  scheduled_time?: string;
+  scheduled_end_time?: string;
+  is_active: boolean;
+  wage: number;
+}
 
 export default function JobManagement() {
-  const [jobs, setJobs] = useState<any[]>([]);
+  const [jobs, setJobs] = useState<EnhancedJob[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [selectedFilter, setSelectedFilter] = useState('all');
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [selectedTab, setSelectedTab] = useState<TabType>('pending');
   const [selectedJob, setSelectedJob] = useState<any | null>(null);
   const [showActionModal, setShowActionModal] = useState(false);
 
   useEffect(() => {
-    fetchJobs();
+    fetchJobsWithApplications();
   }, []);
 
-  const fetchJobs = async () => {
+  const fetchJobsWithApplications = async () => {
     try {
       const apiJobs = await getMyJobs();
-      // Transform API jobs to match the UI format
-      const formattedJobs = apiJobs.map((job: any) => ({
-        id: job.id,
-        title: job.title,
-        category: job.category || 'General',
-        status: job.is_active ? 'active' : 'paused',
-        applicants: 0,
-        budget: `₹${job.wage}/day`,
-        posted: formatPostedTime(job.created_at),
-        urgency: 'Today',
-        location: job.address || 'Not specified',
-        description: job.description || '',
-        views: 0,
-        hired: 0,
-      }));
-      setJobs(formattedJobs);
+      
+      // Fetch applications for each job in parallel
+      const jobsWithApplications = await Promise.all(
+        apiJobs.map(async (job: any) => {
+          let applications: any[] = [];
+          try {
+            applications = await getJobApplications(job.id);
+          } catch (err) {
+            console.log(`Failed to fetch applications for job ${job.id}`);
+          }
+          
+          const hiredWorkers = applications.filter((app: any) => 
+            app.status === 'accepted' && (app.work_status === 'in_progress' || app.work_status === 'pending')
+          );
+          const pendingApplications = applications.filter((app: any) => 
+            app.status === 'applied' || app.status === 'shortlisted'
+          );
+          const completedWorkers = applications.filter((app: any) => 
+            app.work_status === 'completed'
+          );
+          
+          // Determine job work status
+          let workStatus = 'open';
+          if (completedWorkers.length > 0) {
+            workStatus = 'completed';
+          } else if (hiredWorkers.length > 0) {
+            workStatus = 'in_progress';
+          } else if (pendingApplications.length > 0) {
+            workStatus = 'pending_review';
+          }
+          
+          return {
+            id: job.id,
+            title: job.title,
+            category: job.category || 'General',
+            status: job.is_active ? 'active' : 'paused',
+            applicants: applications.length,
+            budget: `₹${job.wage}/day`,
+            posted: formatPostedTime(job.created_at),
+            urgency: getUrgencyFromDate(job.scheduled_date),
+            location: job.address || 'Not specified',
+            description: job.description || '',
+            views: 0,
+            hired: hiredWorkers.length,
+            applications,
+            hiredWorkers,
+            pendingApplications: pendingApplications.length,
+            acceptedApplications: hiredWorkers.length,
+            work_status: workStatus,
+            scheduled_date: job.scheduled_date,
+            scheduled_time: job.scheduled_time,
+            scheduled_end_time: job.scheduled_end_time,
+            is_active: job.is_active,
+            wage: job.wage,
+          };
+        })
+      );
+      
+      setJobs(jobsWithApplications);
+      
+      // Auto-select appropriate tab based on data
+      const hasPending = jobsWithApplications.some(j => j.work_status === 'pending_review');
+      const hasInProgress = jobsWithApplications.some(j => j.work_status === 'in_progress');
+      
+      if (hasPending) {
+        setSelectedTab('pending');
+      } else if (hasInProgress) {
+        setSelectedTab('inprogress');
+      }
     } catch (error) {
       console.log('Error fetching jobs:', error);
       setJobs([]);
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const onRefresh = async () => {
+    setIsRefreshing(true);
+    await fetchJobsWithApplications();
+    setIsRefreshing(false);
+  };
+
+  const getUrgencyFromDate = (scheduledDate?: string) => {
+    if (!scheduledDate) return 'Flexible';
+    
+    const date = new Date(scheduledDate);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    
+    if (date <= today) return 'Immediate';
+    if (date <= tomorrow) return 'Tomorrow';
+    return date.toLocaleDateString();
   };
 
   const formatPostedTime = (dateString: string) => {
@@ -66,6 +170,17 @@ export default function JobManagement() {
     return `${diffDays} days ago`;
   };
 
+  const formatScheduleDate = (dateStr?: string, timeStr?: string) => {
+    if (!dateStr) return 'Not scheduled';
+    const date = new Date(dateStr);
+    const formattedDate = date.toLocaleDateString('en-IN', { 
+      weekday: 'short', 
+      day: 'numeric', 
+      month: 'short' 
+    });
+    return timeStr ? `${formattedDate} at ${timeStr}` : formattedDate;
+  };
+
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'active': return COLORS.status.success;
@@ -76,26 +191,27 @@ export default function JobManagement() {
     }
   };
 
-  const getStatusText = (status: string) => {
-    switch (status) {
-      case 'active': return 'Active';
-      case 'paused': return 'Paused';
+  const getWorkStatusColor = (workStatus: string) => {
+    switch (workStatus) {
+      case 'in_progress': return COLORS.status.success;
+      case 'pending_review': return COLORS.status.warning;
+      case 'completed': return COLORS.system.primary;
+      case 'open': return COLORS.gray[500];
+      default: return COLORS.gray[500];
+    }
+  };
+
+  const getWorkStatusText = (workStatus: string) => {
+    switch (workStatus) {
+      case 'in_progress': return 'In Progress';
+      case 'pending_review': return 'Pending Review';
       case 'completed': return 'Completed';
-      case 'expired': return 'Expired';
+      case 'open': return 'Open';
       default: return 'Unknown';
     }
   };
 
-  const getUrgencyStyle = (urgency: string) => {
-    switch (urgency) {
-      case 'Immediate': return { backgroundColor: COLORS.status.error + '20', color: COLORS.status.error };
-      case 'Today': return { backgroundColor: COLORS.status.warning + '20', color: COLORS.status.warning };
-      case 'Tomorrow': return { backgroundColor: COLORS.status.success + '20', color: COLORS.status.success };
-      default: return { backgroundColor: COLORS.employer.bg, color: COLORS.employer.primary };
-    }
-  };
-
-  const handleJobAction = (action: string, job: typeof jobsList[0]) => {
+  const handleJobAction = (action: string, job: EnhancedJob) => {
     setSelectedJob(job);
     
     switch (action) {
@@ -169,25 +285,72 @@ export default function JobManagement() {
     }
   };
 
+  // Get filtered jobs based on selected tab
+  const getFilteredJobs = () => {
+    switch (selectedTab) {
+      case 'pending':
+        return jobs.filter(job => job.work_status === 'pending_review' || (job.pendingApplications > 0 && job.work_status !== 'completed'));
+      case 'inprogress':
+        return jobs.filter(job => job.work_status === 'in_progress');
+      case 'completed':
+        return jobs.filter(job => job.work_status === 'completed');
+      case 'all':
+      default:
+        return jobs;
+    }
+  };
+
+  const filteredJobs = getFilteredJobs();
+
+  // Tab counts
+  const tabCounts = {
+    pending: jobs.filter(job => job.work_status === 'pending_review' || (job.pendingApplications > 0 && job.work_status !== 'completed')).length,
+    inprogress: jobs.filter(job => job.work_status === 'in_progress').length,
+    completed: jobs.filter(job => job.work_status === 'completed').length,
+    all: jobs.length,
+  };
+
+  const tabs = [
+    { key: 'pending' as TabType, label: 'Pending Review', icon: 'time', count: tabCounts.pending },
+    { key: 'inprogress' as TabType, label: 'In Progress', icon: 'play-circle', count: tabCounts.inprogress },
+    { key: 'completed' as TabType, label: 'Completed', icon: 'checkmark-circle', count: tabCounts.completed },
+    { key: 'all' as TabType, label: 'All Jobs', icon: 'briefcase', count: tabCounts.all },
+  ];
+
   if (isLoading) {
     return (
       <SafeAreaView style={[styles.container, { justifyContent: 'center', alignItems: 'center' }]}>
         <ActivityIndicator size="large" color={COLORS.employer.primary} />
+        <Text style={styles.loadingText}>Loading your jobs...</Text>
       </SafeAreaView>
     );
   }
 
-  const filteredJobs = jobs.filter(job => {
-    switch (selectedFilter) {
-      case 'active': return job.status === 'active';
-      case 'paused': return job.status === 'paused';
-      case 'completed': return job.status === 'completed';
-      default: return true;
-    }
-  });
+  const renderJobCard = ({ item }: { item: EnhancedJob }) => (
+    <View style={[
+      styles.jobCard,
+      item.work_status === 'in_progress' && styles.inProgressCard,
+      item.work_status === 'completed' && styles.completedCard,
+    ]}>
+      {/* Work Status Banner */}
+      {item.work_status === 'in_progress' && (
+        <View style={styles.workStatusBanner}>
+          <Icon name="play-circle" size={14} color={COLORS.status.success} />
+          <Text style={styles.workStatusBannerText}>
+            Worker currently hired • {item.hired} active
+          </Text>
+        </View>
+      )}
+      
+      {item.work_status === 'pending_review' && item.pendingApplications > 0 && (
+        <View style={[styles.workStatusBanner, styles.pendingBanner]}>
+          <Icon name="notifications" size={14} color={COLORS.status.warning} />
+          <Text style={[styles.workStatusBannerText, { color: COLORS.status.warning }]}>
+            {item.pendingApplications} applicant{item.pendingApplications > 1 ? 's' : ''} waiting for review
+          </Text>
+        </View>
+      )}
 
-  const renderJobCard = ({ item }: { item: typeof jobsList[0] }) => (
-    <View style={styles.jobCard}>
       {/* Job Header */}
       <View style={styles.jobHeader}>
         <View style={styles.jobTitleContainer}>
@@ -202,25 +365,36 @@ export default function JobManagement() {
             setShowActionModal(true);
           }}
         >
-          <Icon name="options" size={20} color="#6b7280" />
+          <Icon name="ellipsis-vertical" size={20} color="#6b7280" />
         </TouchableOpacity>
       </View>
+
+      {/* Schedule Info */}
+      {item.scheduled_date && (
+        <View style={styles.scheduleInfo}>
+          <Icon name="calendar" size={14} color={COLORS.employer.primary} />
+          <Text style={styles.scheduleText}>
+            {formatScheduleDate(item.scheduled_date, item.scheduled_time)}
+            {item.scheduled_end_time && ` - ${item.scheduled_end_time}`}
+          </Text>
+        </View>
+      )}
 
       {/* Job Status & Budget */}
       <View style={styles.jobMeta}>
         <View style={[styles.statusBadge, { backgroundColor: getStatusColor(item.status) + '20' }]}>
           <Text style={[styles.statusText, { color: getStatusColor(item.status) }]}>
-            {getStatusText(item.status)}
+            {item.status === 'active' ? 'Active' : item.status === 'paused' ? 'Paused' : item.status}
+          </Text>
+        </View>
+        
+        <View style={[styles.workStatusBadge, { backgroundColor: getWorkStatusColor(item.work_status) + '20' }]}>
+          <Text style={[styles.statusText, { color: getWorkStatusColor(item.work_status) }]}>
+            {getWorkStatusText(item.work_status)}
           </Text>
         </View>
         
         <Text style={styles.jobBudget}>{item.budget}</Text>
-        
-        <View style={[styles.urgencyBadge, getUrgencyStyle(item.urgency)]}>
-          <Text style={[styles.urgencyText, { color: getUrgencyStyle(item.urgency).color }]}>
-            {item.urgency}
-          </Text>
-        </View>
       </View>
 
       {/* Job Stats */}
@@ -231,17 +405,41 @@ export default function JobManagement() {
         </View>
         
         <View style={styles.statItem}>
-          <Icon name="eye" size={16} color="#6b7280" />
-          <Text style={styles.statText}>{item.views} views</Text>
-        </View>
-        
-        <View style={styles.statItem}>
-          <Icon name="checkmark-circle" size={16} color="#6b7280" />
+          <Icon name="checkmark-circle" size={16} color={COLORS.status.success} />
           <Text style={styles.statText}>{item.hired} hired</Text>
         </View>
         
         <Text style={styles.postedTime}>{item.posted}</Text>
       </View>
+
+      {/* Hired Workers Preview */}
+      {item.hiredWorkers.length > 0 && (
+        <View style={styles.hiredWorkersSection}>
+          <Text style={styles.hiredWorkersTitle}>Hired Workers:</Text>
+          {item.hiredWorkers.slice(0, 2).map((worker: any, index: number) => (
+            <View key={index} style={styles.hiredWorkerRow}>
+              <View style={styles.workerAvatar}>
+                <Text style={styles.workerAvatarText}>
+                  {(worker.employees?.name || 'W').charAt(0).toUpperCase()}
+                </Text>
+              </View>
+              <Text style={styles.hiredWorkerName}>{worker.employees?.name || 'Worker'}</Text>
+              <View style={[styles.workerStatusBadge, { 
+                backgroundColor: worker.work_status === 'completed' ? COLORS.system.primary + '20' : COLORS.status.success + '20' 
+              }]}>
+                <Text style={[styles.workerStatusText, { 
+                  color: worker.work_status === 'completed' ? COLORS.system.primary : COLORS.status.success 
+                }]}>
+                  {worker.work_status === 'completed' ? 'Completed' : 'Working'}
+                </Text>
+              </View>
+            </View>
+          ))}
+          {item.hiredWorkers.length > 2 && (
+            <Text style={styles.moreWorkersText}>+{item.hiredWorkers.length - 2} more</Text>
+          )}
+        </View>
+      )}
 
       {/* Action Buttons */}
       <View style={styles.jobActions}>
@@ -249,17 +447,19 @@ export default function JobManagement() {
           style={styles.actionButton}
           onPress={() => handleJobAction('viewCandidates', item)}
         >
-          <Icon name="people" size={16} color="#2563eb" />
-          <Text style={styles.actionButtonText}>View Candidates</Text>
+          <Icon name="people" size={16} color={COLORS.employer.primary} />
+          <Text style={styles.actionButtonText}>
+            {item.pendingApplications > 0 ? `Review (${item.pendingApplications})` : 'Candidates'}
+          </Text>
         </TouchableOpacity>
         
-        {item.status === 'active' && (
+        {item.status === 'active' && item.work_status !== 'completed' && (
           <TouchableOpacity
             style={[styles.actionButton, styles.secondaryAction]}
             onPress={() => handleJobAction('pause', item)}
           >
-            <Icon name="pause" size={16} color="#f59e0b" />
-            <Text style={[styles.actionButtonText, { color: '#f59e0b' }]}>Pause</Text>
+            <Icon name="pause" size={16} color={COLORS.status.warning} />
+            <Text style={[styles.actionButtonText, { color: COLORS.status.warning }]}>Pause</Text>
           </TouchableOpacity>
         )}
         
@@ -268,20 +468,13 @@ export default function JobManagement() {
             style={[styles.actionButton, styles.successAction]}
             onPress={() => handleJobAction('activate', item)}
           >
-            <Icon name="play" size={16} color="#16a34a" />
-            <Text style={[styles.actionButtonText, { color: '#16a34a' }]}>Activate</Text>
+            <Icon name="play" size={16} color={COLORS.status.success} />
+            <Text style={[styles.actionButtonText, { color: COLORS.status.success }]}>Activate</Text>
           </TouchableOpacity>
         )}
       </View>
     </View>
   );
-
-  const filterOptions = [
-    { key: 'all', label: 'All Jobs', count: jobs.length },
-    { key: 'active', label: 'Active', count: jobs.filter(j => j.status === 'active').length },
-    { key: 'paused', label: 'Paused', count: jobs.filter(j => j.status === 'paused').length },
-    { key: 'completed', label: 'Completed', count: jobs.filter(j => j.status === 'completed').length },
-  ];
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
@@ -296,36 +489,71 @@ export default function JobManagement() {
         </TouchableOpacity>
       </View>
 
-      {/* Filter Tabs */}
-      <View style={styles.filterContainer}>
-        {filterOptions.map((option) => (
+      {/* Tab Navigation */}
+      <ScrollView 
+        horizontal 
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={styles.tabsContainer}
+      >
+        {tabs.map((tab) => (
           <TouchableOpacity
-            key={option.key}
+            key={tab.key}
             style={[
-              styles.filterTab,
-              selectedFilter === option.key && styles.activeFilterTab
+              styles.tab,
+              selectedTab === tab.key && styles.activeTab
             ]}
-            onPress={() => setSelectedFilter(option.key)}
+            onPress={() => setSelectedTab(tab.key)}
           >
+            <Icon 
+              name={tab.icon as any} 
+              size={18} 
+              color={selectedTab === tab.key ? COLORS.white : COLORS.gray[500]} 
+            />
             <Text style={[
-              styles.filterTabText,
-              selectedFilter === option.key && styles.activeFilterTabText
+              styles.tabText,
+              selectedTab === tab.key && styles.activeTabText
             ]}>
-              {option.label}
+              {tab.label}
             </Text>
-            <View style={[
-              styles.filterCount,
-              selectedFilter === option.key && styles.activeFilterCount
-            ]}>
-              <Text style={[
-                styles.filterCountText,
-                selectedFilter === option.key && styles.activeFilterCountText
+            {tab.count > 0 && (
+              <View style={[
+                styles.tabBadge,
+                selectedTab === tab.key && styles.activeTabBadge
               ]}>
-                {option.count}
-              </Text>
-            </View>
+                <Text style={[
+                  styles.tabBadgeText,
+                  selectedTab === tab.key && styles.activeTabBadgeText
+                ]}>
+                  {tab.count}
+                </Text>
+              </View>
+            )}
           </TouchableOpacity>
         ))}
+      </ScrollView>
+
+      {/* Tab Description */}
+      <View style={styles.tabDescription}>
+        {selectedTab === 'pending' && (
+          <Text style={styles.tabDescriptionText}>
+            Jobs with applicants waiting for your review
+          </Text>
+        )}
+        {selectedTab === 'inprogress' && (
+          <Text style={styles.tabDescriptionText}>
+            Jobs where workers are currently hired and working
+          </Text>
+        )}
+        {selectedTab === 'completed' && (
+          <Text style={styles.tabDescriptionText}>
+            Jobs that have been completed
+          </Text>
+        )}
+        {selectedTab === 'all' && (
+          <Text style={styles.tabDescriptionText}>
+            All your job postings
+          </Text>
+        )}
       </View>
 
       {/* Jobs List */}
@@ -336,22 +564,35 @@ export default function JobManagement() {
         style={styles.jobsList}
         contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 20 }}
         showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={isRefreshing}
+            onRefresh={onRefresh}
+            colors={[COLORS.employer.primary]}
+            tintColor={COLORS.employer.primary}
+          />
+        }
         ListEmptyComponent={
           <View style={styles.emptyState}>
-            <Icon name="briefcase" size={48} color="#d1d5db" />
-            <Text style={styles.emptyStateTitle}>No jobs found</Text>
-            <Text style={styles.emptyStateText}>
-              {selectedFilter === 'all' 
-                ? 'Start by posting your first job to find workers in your area.'
-                : `No ${selectedFilter} jobs at the moment.`
-              }
+            <Icon name={tabs.find(t => t.key === selectedTab)?.icon as any || 'briefcase'} size={48} color="#d1d5db" />
+            <Text style={styles.emptyStateTitle}>
+              {selectedTab === 'pending' && 'No pending applications'}
+              {selectedTab === 'inprogress' && 'No jobs in progress'}
+              {selectedTab === 'completed' && 'No completed jobs'}
+              {selectedTab === 'all' && 'No jobs found'}
             </Text>
-            {selectedFilter === 'all' && (
+            <Text style={styles.emptyStateText}>
+              {selectedTab === 'pending' && 'When candidates apply to your jobs, they will appear here for review.'}
+              {selectedTab === 'inprogress' && 'Once you hire a worker, their job will appear here.'}
+              {selectedTab === 'completed' && 'Completed jobs will be shown here.'}
+              {selectedTab === 'all' && 'Start by posting your first job to find workers in your area.'}
+            </Text>
+            {selectedTab === 'all' && (
               <TouchableOpacity 
                 style={styles.postJobButton}
                 onPress={() => router.push('/(employer)/post-job')}
               >
-                <Text style={styles.postJobButtonText}>Post Your First Job</Text>
+                <Text style={styles.postJobButtonText}>Post a Job</Text>
               </TouchableOpacity>
             )}
           </View>
@@ -440,34 +681,39 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#1f2937',
   },
-  filterContainer: {
-    flexDirection: 'row',
-    backgroundColor: 'white',
-    paddingHorizontal: 20,
-    paddingBottom: 16,
+  loadingText: {
+    marginTop: 12,
+    fontSize: 14,
+    color: COLORS.gray[500],
   },
-  filterTab: {
+  // Tab Navigation
+  tabsContainer: {
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    backgroundColor: 'white',
+  },
+  tab: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    marginRight: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    marginRight: 10,
     borderRadius: 20,
     backgroundColor: '#f3f4f6',
+    gap: 6,
   },
-  activeFilterTab: {
+  activeTab: {
     backgroundColor: COLORS.employer.primary,
   },
-  filterTabText: {
-    fontSize: 14,
+  tabText: {
+    fontSize: 13,
     fontWeight: '500',
     color: COLORS.gray[500],
-    marginRight: 8,
   },
-  activeFilterTabText: {
+  activeTabText: {
     color: COLORS.white,
   },
-  filterCount: {
+  tabBadge: {
     backgroundColor: '#e5e7eb',
     borderRadius: 10,
     paddingHorizontal: 6,
@@ -475,17 +721,30 @@ const styles = StyleSheet.create({
     minWidth: 20,
     alignItems: 'center',
   },
-  activeFilterCount: {
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+  activeTabBadge: {
+    backgroundColor: 'rgba(255, 255, 255, 0.25)',
   },
-  filterCountText: {
-    fontSize: 12,
+  tabBadgeText: {
+    fontSize: 11,
     fontWeight: '600',
     color: '#374151',
   },
-  activeFilterCountText: {
+  activeTabBadgeText: {
     color: 'white',
   },
+  tabDescription: {
+    paddingHorizontal: 20,
+    paddingVertical: 8,
+    backgroundColor: '#f8fafc',
+    borderBottomWidth: 1,
+    borderBottomColor: '#e5e7eb',
+  },
+  tabDescriptionText: {
+    fontSize: 13,
+    color: COLORS.gray[500],
+    fontStyle: 'italic',
+  },
+  // Jobs List
   jobsList: {
     flex: 1,
   },
@@ -500,11 +759,40 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     elevation: 3,
   },
+  inProgressCard: {
+    borderLeftWidth: 4,
+    borderLeftColor: COLORS.status.success,
+  },
+  completedCard: {
+    borderLeftWidth: 4,
+    borderLeftColor: COLORS.system.primary,
+    opacity: 0.85,
+  },
+  // Work Status Banner
+  workStatusBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: COLORS.status.success + '15',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 6,
+    marginBottom: 12,
+    gap: 6,
+  },
+  pendingBanner: {
+    backgroundColor: COLORS.status.warning + '15',
+  },
+  workStatusBannerText: {
+    fontSize: 12,
+    fontWeight: '500',
+    color: COLORS.status.success,
+  },
+  // Job Header
   jobHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-start',
-    marginBottom: 12,
+    marginBottom: 8,
   },
   jobTitleContainer: {
     flex: 1,
@@ -516,15 +804,33 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   jobCategory: {
-    fontSize: 14,
+    fontSize: 13,
     color: '#6b7280',
   },
   moreButton: {
     padding: 4,
   },
+  // Schedule Info
+  scheduleInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: COLORS.employer.bg,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 6,
+    marginBottom: 10,
+    gap: 6,
+  },
+  scheduleText: {
+    fontSize: 12,
+    fontWeight: '500',
+    color: COLORS.employer.primary,
+  },
+  // Job Meta
   jobMeta: {
     flexDirection: 'row',
     alignItems: 'center',
+    flexWrap: 'wrap',
     marginBottom: 12,
     gap: 8,
   },
@@ -533,28 +839,26 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
     borderRadius: 12,
   },
+  workStatusBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
   statusText: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '600',
   },
   jobBudget: {
     fontSize: 14,
     fontWeight: '600',
     color: COLORS.status.success,
+    marginLeft: 'auto',
   },
-  urgencyBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 12,
-  },
-  urgencyText: {
-    fontSize: 12,
-    fontWeight: '600',
-  },
+  // Job Stats
   jobStats: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 16,
+    marginBottom: 12,
     gap: 16,
   },
   statItem: {
@@ -571,9 +875,62 @@ const styles = StyleSheet.create({
     color: '#9ca3af',
     marginLeft: 'auto',
   },
+  // Hired Workers Section
+  hiredWorkersSection: {
+    backgroundColor: '#f8fafc',
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 12,
+  },
+  hiredWorkersTitle: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: COLORS.gray[600],
+    marginBottom: 8,
+  },
+  hiredWorkerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 6,
+    gap: 8,
+  },
+  workerAvatar: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: COLORS.employer.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  workerAvatarText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: 'white',
+  },
+  hiredWorkerName: {
+    flex: 1,
+    fontSize: 13,
+    color: '#374151',
+  },
+  workerStatusBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 10,
+  },
+  workerStatusText: {
+    fontSize: 10,
+    fontWeight: '600',
+  },
+  moreWorkersText: {
+    fontSize: 12,
+    color: COLORS.gray[500],
+    marginTop: 4,
+    fontStyle: 'italic',
+  },
+  // Job Actions
   jobActions: {
     flexDirection: 'row',
-    gap: 12,
+    gap: 10,
   },
   actionButton: {
     flexDirection: 'row',
@@ -595,6 +952,7 @@ const styles = StyleSheet.create({
     fontWeight: '500',
     color: COLORS.employer.primary,
   },
+  // Empty State
   emptyState: {
     alignItems: 'center',
     paddingVertical: 60,
@@ -606,6 +964,7 @@ const styles = StyleSheet.create({
     color: '#374151',
     marginTop: 16,
     marginBottom: 8,
+    textAlign: 'center',
   },
   emptyStateText: {
     fontSize: 14,
@@ -625,6 +984,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
   },
+  // Modal
   modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.5)',

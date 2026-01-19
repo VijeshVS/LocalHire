@@ -17,33 +17,56 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { COLORS, SPACING, TYPOGRAPHY, RADIUS, SHADOWS } from '../../constants/theme';
-import { getMyApplications } from '../../services/applicationService';
+import { getMyApplicationsWithConflicts } from '../../services/applicationService';
+import { getJobOffers, acceptJobOffer, rejectJobOffer } from '../../services/jobOfferService';
 import { markJobCompleted } from '../../services/jobCompletionService';
+
+type TabType = 'offers' | 'active' | 'applied' | 'completed';
 
 export default function MyJobsScreen() {
   const [applications, setApplications] = useState<any[]>([]);
+  const [offers, setOffers] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const [selectedTab, setSelectedTab] = useState<'applied' | 'accepted' | 'completed'>('applied');
+  const [selectedTab, setSelectedTab] = useState<TabType>('offers');
   const [showCompleteModal, setShowCompleteModal] = useState(false);
   const [selectedApplication, setSelectedApplication] = useState<any>(null);
   const [completionNotes, setCompletionNotes] = useState('');
   const [employerRating, setEmployerRating] = useState(0);
   const [employerReview, setEmployerReview] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [processingOfferId, setProcessingOfferId] = useState<string | null>(null);
 
   useEffect(() => {
-    loadApplications();
+    loadData();
   }, []);
 
-  const loadApplications = async () => {
+  const loadData = async () => {
     try {
       setIsLoading(true);
-      const data = await getMyApplications();
-      // Show ALL applications, not just accepted ones
-      setApplications(data);
+      // Load both applications and offers in parallel
+      const [appsData, offersData] = await Promise.all([
+        getMyApplicationsWithConflicts().catch(() => []),
+        getJobOffers().catch(() => ({ offers: [] }))
+      ]);
+      
+      setApplications(appsData || []);
+      setOffers(offersData?.offers || []);
+      
+      // Auto-switch to offers tab if there are pending offers
+      if (offersData?.offers?.length > 0 && selectedTab === 'offers') {
+        // Stay on offers tab
+      } else if (appsData?.some((app: any) => app.status === 'accepted' && app.work_status !== 'completed')) {
+        // If no offers but has active jobs, show active
+        if (offersData?.offers?.length === 0) {
+          setSelectedTab('active');
+        }
+      }
     } catch (error) {
-      console.error('Error loading applications:', error);
+      console.error('Error loading data:', error);
+      Alert.alert('Error', 'Failed to load jobs. Please try again.');
+      setApplications([]);
+      setOffers([]);
     } finally {
       setIsLoading(false);
     }
@@ -51,8 +74,197 @@ export default function MyJobsScreen() {
 
   const onRefresh = async () => {
     setIsRefreshing(true);
-    await loadApplications();
+    await loadData();
     setIsRefreshing(false);
+  };
+
+  // Helper function to convert time string (HH:MM or HH:MM:SS) to minutes for comparison
+  const timeToMinutes = (timeStr: string | null | undefined): number => {
+    if (!timeStr || typeof timeStr !== 'string') return -1;
+    const parts = timeStr.split(':');
+    if (parts.length < 2) return -1;
+    const hours = parseInt(parts[0], 10);
+    const mins = parseInt(parts[1], 10);
+    if (isNaN(hours) || isNaN(mins)) return -1;
+    return hours * 60 + mins;
+  };
+
+  // Check if two time ranges overlap - returns false if any data is missing
+  const doTimesOverlap = (
+    start1: string | null | undefined, 
+    end1: string | null | undefined, 
+    start2: string | null | undefined, 
+    end2: string | null | undefined
+  ): boolean => {
+    const s1 = timeToMinutes(start1);
+    const e1 = timeToMinutes(end1);
+    const s2 = timeToMinutes(start2);
+    const e2 = timeToMinutes(end2);
+    
+    // If any time is invalid/missing, NO CONFLICT
+    if (s1 < 0 || e1 < 0 || s2 < 0 || e2 < 0) {
+      return false;
+    }
+    
+    // Two ranges overlap if start1 < end2 AND end1 > start2
+    return s1 < e2 && e1 > s2;
+  };
+
+  // Get offers with conflict information
+  const getOffersWithConflicts = () => {
+    const offersList = offers || [];
+    
+    // Get accepted jobs that worker is currently working on
+    const acceptedJobs = applications
+      .filter(app => app.status === 'accepted' && app.work_status === 'in_progress')
+      .map(app => ({
+        id: app.id,
+        job_id: app.job_posting_id || app.job_postings?.id,
+        title: app.job_postings?.title || 'Unknown Job',
+        date: app.job_postings?.scheduled_date || null,
+        start: app.job_postings?.scheduled_start_time || null,
+        end: app.job_postings?.scheduled_end_time || null,
+      }));
+    
+    return offersList.map((offer: any) => {
+      const offerDate = offer.scheduled_date;
+      const offerStart = offer.scheduled_start_time;
+      const offerEnd = offer.scheduled_end_time;
+      const offerJobId = offer.job_id; // The underlying job posting ID
+      
+      // If offer has no schedule info, no conflict possible
+      if (!offerDate || !offerStart || !offerEnd) {
+        return {
+          ...offer,
+          hasConflict: false,
+          conflictingOffers: [],
+          hasExistingJobConflict: false
+        };
+      }
+      
+      let conflictingOffers: string[] = [];
+      let hasExistingJobConflict = false;
+      
+      // Only check against accepted/in-progress jobs on the SAME DATE
+      // BUT SKIP if it's the SAME job posting (offer for same job they already accepted)
+      acceptedJobs.forEach(job => {
+        // Skip if this is the same underlying job posting
+        if (offerJobId && job.job_id && offerJobId === job.job_id) {
+          return;
+        }
+        
+        // Must be same date
+        if (job.date === offerDate && job.start && job.end) {
+          // Check if times overlap
+          if (doTimesOverlap(offerStart, offerEnd, job.start, job.end)) {
+            hasExistingJobConflict = true;
+            conflictingOffers.push(job.title);
+          }
+        }
+      });
+      
+      // Also check against other PENDING offers on same date
+      offersList.forEach((otherOffer: any) => {
+        // Skip self (same offer)
+        if (otherOffer.offer_id === offer.offer_id) return;
+        
+        // Skip if same underlying job posting
+        if (offerJobId && otherOffer.job_id && offerJobId === otherOffer.job_id) return;
+        
+        // Must be same date
+        if (otherOffer.scheduled_date === offerDate && 
+            otherOffer.scheduled_start_time && 
+            otherOffer.scheduled_end_time) {
+          // Check if times overlap
+          if (doTimesOverlap(offerStart, offerEnd, otherOffer.scheduled_start_time, otherOffer.scheduled_end_time)) {
+            conflictingOffers.push(otherOffer.job_title);
+          }
+        }
+      });
+      
+      const result = {
+        ...offer,
+        hasConflict: conflictingOffers.length > 0,
+        conflictingOffers,
+        hasExistingJobConflict
+      };
+      
+      return result;
+    });
+  };
+
+  const handleAcceptOffer = async (offer: any) => {
+    const warningMessage = offer.hasExistingJobConflict 
+      ? 'You have an existing job scheduled during this time. Accepting this offer will cancel the other job.'
+      : offer.hasConflict
+      ? `This offer conflicts with "${offer.conflictingOffers.join(', ')}". You can only accept one.`
+      : '';
+
+    Alert.alert(
+      'Accept Job Offer',
+      `Do you want to accept the offer for "${offer.job_title}"?\n\n${warningMessage}`.trim(),
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Accept',
+          onPress: async () => {
+            try {
+              setProcessingOfferId(offer.offer_id);
+              const result = await acceptJobOffer(offer.offer_id);
+              
+              if (result.success) {
+                Alert.alert('Success', 'Job offer accepted! The job has been added to your schedule.');
+                await loadData();
+              } else {
+                Alert.alert('Error', result.error || 'Failed to accept offer');
+              }
+            } catch (error: any) {
+              const errorMsg = error.message || 'Failed to accept offer';
+              if (errorMsg.includes('conflict') || errorMsg.includes('time')) {
+                Alert.alert(
+                  'Schedule Conflict',
+                  'You already have a job accepted at this time. Please complete or cancel it first.'
+                );
+              } else {
+                Alert.alert('Error', errorMsg);
+              }
+            } finally {
+              setProcessingOfferId(null);
+            }
+          }
+        }
+      ]
+    );
+  };
+
+  const handleRejectOffer = async (offer: any) => {
+    Alert.alert(
+      'Reject Job Offer',
+      `Are you sure you want to reject "${offer.job_title}"?`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Reject',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              setProcessingOfferId(offer.offer_id);
+              const result = await rejectJobOffer(offer.offer_id);
+              
+              if (result.success) {
+                await loadData();
+              } else {
+                Alert.alert('Error', result.error || 'Failed to reject offer');
+              }
+            } catch (error: any) {
+              Alert.alert('Error', error.message || 'Failed to reject offer');
+            } finally {
+              setProcessingOfferId(null);
+            }
+          }
+        }
+      ]
+    );
   };
 
   const handleMarkComplete = (application: any) => {
@@ -77,7 +289,7 @@ export default function MyJobsScreen() {
       
       Alert.alert('Success', 'Job marked as completed!');
       setShowCompleteModal(false);
-      await loadApplications();
+      await loadData();
     } catch (error: any) {
       Alert.alert('Error', error.message || 'Failed to mark job as completed');
     } finally {
@@ -85,27 +297,53 @@ export default function MyJobsScreen() {
     }
   };
 
-  const getWorkStatus = (app: any) => {
-    // Check for work_status field from backend
-    if (app.work_status === 'completed') return 'completed';
-    if (app.work_status === 'in_progress') return 'in_progress';
-    // Fallback to status
-    return app.status === 'accepted' ? 'in_progress' : 'completed';
-  };
-
   const getFilteredApplications = () => {
     return applications.filter(app => {
       if (selectedTab === 'applied') {
-        // Show applied, pending, rejected
-        return app.status === 'applied' || app.status === 'pending' || app.status === 'rejected';
-      } else if (selectedTab === 'accepted') {
-        // Show accepted jobs that are in progress
-        return app.status === 'accepted' && app.work_status !== 'completed';
-      } else {
-        // Show completed jobs
-        return app.work_status === 'completed';
+        // Applied/pending applications that haven't been accepted by employer yet
+        // Also include jobs where employer accepted but worker hasn't accepted the offer yet
+        // (these have status='accepted' but work_status is null or 'pending')
+        const isWaitingForWorkerResponse = app.status === 'accepted' && 
+          (!app.work_status || app.work_status === 'pending');
+        return app.status === 'applied' || app.status === 'pending' || 
+               app.status === 'shortlisted' || isWaitingForWorkerResponse;
+      } else if (selectedTab === 'active') {
+        // Only show as active if:
+        // 1. Application status is 'accepted' (employer accepted)
+        // 2. work_status is 'in_progress' (worker accepted the offer)
+        return app.status === 'accepted' && app.work_status === 'in_progress';
+      } else if (selectedTab === 'completed') {
+        return app.work_status === 'completed' || app.status === 'rejected';
       }
+      return false;
     });
+  };
+
+  const formatDateTime = (date: string, startTime: string, endTime: string) => {
+    if (!date) return 'Not scheduled';
+    const dateStr = new Date(date).toLocaleDateString('en-US', {
+      weekday: 'short',
+      month: 'short',
+      day: 'numeric'
+    });
+    if (startTime && endTime) {
+      return `${dateStr} • ${startTime} - ${endTime}`;
+    }
+    return dateStr;
+  };
+
+  const getTimeRemaining = (expiresAt: string) => {
+    const now = new Date();
+    const expiry = new Date(expiresAt);
+    const diff = expiry.getTime() - now.getTime();
+    
+    if (diff <= 0) return 'Expired';
+    
+    const hours = Math.floor(diff / (1000 * 60 * 60));
+    const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+    
+    if (hours > 0) return `${hours}h ${minutes}m left`;
+    return `${minutes}m left`;
   };
 
   const renderRatingStars = () => (
@@ -126,79 +364,261 @@ export default function MyJobsScreen() {
     </View>
   );
 
+  // Render offer card with conflict highlighting
+  const renderOfferCard = (offer: any) => {
+    const isProcessing = processingOfferId === offer.offer_id;
+    const cardStyle = offer.hasConflict 
+      ? [styles.offerCard, styles.conflictCard] 
+      : styles.offerCard;
+
+    return (
+      <View key={offer.offer_id} style={cardStyle}>
+        {/* Conflict Banner */}
+        {offer.hasConflict && (
+          <View style={styles.conflictBanner}>
+            <Ionicons name="warning" size={16} color="#92400e" />
+            <Text style={styles.conflictBannerText}>
+              {offer.hasExistingJobConflict 
+                ? 'Conflicts with your accepted job'
+                : `Conflicts with: ${offer.conflictingOffers.join(', ')}`}
+            </Text>
+          </View>
+        )}
+
+        {/* Header */}
+        <View style={styles.offerHeader}>
+          <View style={styles.offerTitleContainer}>
+            <Text style={styles.offerTitle}>{offer.job_title}</Text>
+            <Text style={styles.offerExpiry}>{getTimeRemaining(offer.expires_at)}</Text>
+          </View>
+          <Text style={styles.offerWage}>₹{offer.wage}</Text>
+        </View>
+
+        {/* Employer */}
+        <View style={styles.detailRow}>
+          <Ionicons name="business-outline" size={16} color={COLORS.gray[500]} />
+          <Text style={styles.detailText}>{offer.employer_business || offer.employer_name}</Text>
+        </View>
+
+        {/* Schedule */}
+        {offer.scheduled_date && (
+          <View style={styles.detailRow}>
+            <Ionicons name="calendar-outline" size={16} color={COLORS.gray[500]} />
+            <Text style={styles.detailText}>
+              {formatDateTime(offer.scheduled_date, offer.scheduled_start_time, offer.scheduled_end_time)}
+            </Text>
+          </View>
+        )}
+
+        {/* Location */}
+        <View style={styles.detailRow}>
+          <Ionicons name="location-outline" size={16} color={COLORS.gray[500]} />
+          <Text style={styles.detailText} numberOfLines={1}>{offer.address}</Text>
+        </View>
+
+        {/* Duration */}
+        <View style={styles.detailRow}>
+          <Ionicons name="time-outline" size={16} color={COLORS.gray[500]} />
+          <Text style={styles.detailText}>{offer.duration}</Text>
+        </View>
+
+        {/* Action Buttons */}
+        <View style={styles.offerActions}>
+          <TouchableOpacity
+            style={[styles.rejectButton, isProcessing && styles.disabledButton]}
+            onPress={() => handleRejectOffer(offer)}
+            disabled={isProcessing}
+          >
+            {isProcessing ? (
+              <ActivityIndicator size="small" color={COLORS.gray[600]} />
+            ) : (
+              <>
+                <Ionicons name="close-circle-outline" size={20} color="#dc2626" />
+                <Text style={styles.rejectButtonText}>Decline</Text>
+              </>
+            )}
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.acceptButton, isProcessing && styles.disabledButton]}
+            onPress={() => handleAcceptOffer(offer)}
+            disabled={isProcessing}
+          >
+            {isProcessing ? (
+              <ActivityIndicator size="small" color={COLORS.white} />
+            ) : (
+              <>
+                <Ionicons name="checkmark-circle" size={20} color={COLORS.white} />
+                <Text style={styles.acceptButtonText}>Accept</Text>
+              </>
+            )}
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
+  };
+
   const renderJobCard = ({ item }: any) => {
     const job = item.job_postings || {};
     const status = item.status;
     const workStatus = item.work_status || 'pending';
+    const hasConflicts = item.has_conflicts || false;
+    const jobDeleted = item.job_deleted || !job.id;
 
-    // Determine badge color and text
+    // Determine badge
     let badgeStyle = styles.appliedBadge;
     let badgeText = 'Applied';
     
-    if (status === 'rejected') {
+    if (jobDeleted) {
+      badgeStyle = styles.deletedBadge;
+      badgeText = 'Job Deleted';
+    } else if (status === 'rejected') {
       badgeStyle = styles.rejectedBadge;
       badgeText = 'Rejected';
+    } else if (status === 'shortlisted') {
+      badgeStyle = styles.shortlistedBadge;
+      badgeText = 'Shortlisted';
     } else if (status === 'accepted' && workStatus === 'completed') {
       badgeStyle = styles.completedBadge;
       badgeText = 'Completed';
     } else if (status === 'accepted') {
       badgeStyle = styles.acceptedBadge;
-      badgeText = 'In Progress';
+      badgeText = 'Active';
     }
 
+    // Check if job can be marked complete (schedule time has passed)
+    const canMarkComplete = () => {
+      if (workStatus === 'completed') return false;
+      if (status !== 'accepted') return false;
+      if (jobDeleted) return false;
+      
+      // Check if scheduled end time has passed
+      if (job.scheduled_date && job.scheduled_end_time) {
+        const endDateTime = new Date(`${job.scheduled_date}T${job.scheduled_end_time}`);
+        const now = new Date();
+        return now >= endDateTime;
+      }
+      // If no schedule, allow completion
+      return true;
+    };
+
+    const getTimeUntilComplete = () => {
+      if (!job.scheduled_date || !job.scheduled_end_time) return null;
+      const endDateTime = new Date(`${job.scheduled_date}T${job.scheduled_end_time}`);
+      const now = new Date();
+      const diff = endDateTime.getTime() - now.getTime();
+      
+      if (diff <= 0) return null;
+      
+      const hours = Math.floor(diff / (1000 * 60 * 60));
+      const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+      
+      if (hours > 0) return `${hours}h ${minutes}m until job ends`;
+      return `${minutes}m until job ends`;
+    };
+
+    const cardStyle = jobDeleted 
+      ? [styles.jobCard, styles.deletedCard]
+      : hasConflicts 
+      ? [styles.jobCard, styles.conflictCard] 
+      : styles.jobCard;
+
+    const scheduleText = job.scheduled_date && job.scheduled_start_time && job.scheduled_end_time
+      ? formatDateTime(job.scheduled_date, job.scheduled_start_time, job.scheduled_end_time)
+      : null;
+
+    const timeRemaining = getTimeUntilComplete();
+
     return (
-      <View style={styles.jobCard}>
+      <View style={cardStyle}>
+        {jobDeleted && (
+          <View style={styles.deletedBanner}>
+            <Ionicons name="trash-outline" size={16} color="#6b7280" />
+            <Text style={styles.deletedBannerText}>This job has been removed by the employer</Text>
+          </View>
+        )}
+
+        {hasConflicts && !jobDeleted && (
+          <View style={styles.conflictBanner}>
+            <Ionicons name="warning" size={16} color="#92400e" />
+            <Text style={styles.conflictBannerText}>Schedule conflict detected</Text>
+          </View>
+        )}
+
         <View style={styles.jobHeader}>
           <View style={styles.jobTitleContainer}>
-            <Text style={styles.jobTitle}>{job.title || 'Job'}</Text>
+            <Text style={[styles.jobTitle, jobDeleted && styles.deletedText]}>{job.title || 'Job'}</Text>
             <View style={badgeStyle}>
-              <Text style={styles.statusText}>{badgeText}</Text>
+              <Text style={[styles.statusText, (status === 'rejected' || jobDeleted) && { color: '#6b7280' }]}>
+                {badgeText}
+              </Text>
             </View>
           </View>
-          <Text style={styles.wage}>₹{job.wage || 0}</Text>
+          {!jobDeleted && <Text style={styles.wage}>₹{job.wage || 0}</Text>}
         </View>
 
-        <View style={styles.jobDetails}>
-          <View style={styles.detailRow}>
-            <Ionicons name="location-outline" size={16} color={COLORS.gray[600]} />
-            <Text style={styles.detailText}>{job.address || 'Location'}</Text>
+        {!jobDeleted && (
+          <View style={styles.jobDetails}>
+            <View style={styles.detailRow}>
+              <Ionicons name="location-outline" size={16} color={COLORS.gray[500]} />
+              <Text style={styles.detailText}>{job.address || 'Location'}</Text>
+            </View>
+            {scheduleText && (
+              <View style={styles.detailRow}>
+                <Ionicons name="calendar-outline" size={16} color={COLORS.gray[500]} />
+                <Text style={styles.detailText}>{scheduleText}</Text>
+              </View>
+            )}
+            <View style={styles.detailRow}>
+              <Ionicons name="time-outline" size={16} color={COLORS.gray[500]} />
+              <Text style={styles.detailText}>{job.duration || 'Duration'}</Text>
+            </View>
           </View>
-          <View style={styles.detailRow}>
-            <Ionicons name="time-outline" size={16} color={COLORS.gray[600]} />
-            <Text style={styles.detailText}>{job.duration || 'Duration'}</Text>
-          </View>
-        </View>
+        )}
 
-        {status === 'accepted' && workStatus !== 'completed' && (
-          <TouchableOpacity
-            style={styles.completeButton}
-            onPress={() => handleMarkComplete(item)}
-          >
-            <Ionicons name="checkmark-circle-outline" size={20} color={COLORS.white} />
-            <Text style={styles.completeButtonText}>Mark as Completed</Text>
-          </TouchableOpacity>
+        {status === 'accepted' && workStatus !== 'completed' && !jobDeleted && (
+          canMarkComplete() ? (
+            <TouchableOpacity
+              style={styles.completeButton}
+              onPress={() => handleMarkComplete(item)}
+            >
+              <Ionicons name="checkmark-circle-outline" size={20} color={COLORS.white} />
+              <Text style={styles.completeButtonText}>Mark as Completed</Text>
+            </TouchableOpacity>
+          ) : (
+            <View style={styles.waitingInfo}>
+              <Ionicons name="time-outline" size={20} color="#f59e0b" />
+              <Text style={styles.waitingInfoText}>{timeRemaining || 'Job in progress'}</Text>
+            </View>
+          )
         )}
 
         {workStatus === 'completed' && (
           <View style={styles.completedInfo}>
             <Ionicons name="checkmark-circle" size={20} color="#16a34a" />
-            <Text style={styles.completedInfoText}>
-              Waiting for employer confirmation
-            </Text>
+            <Text style={styles.completedInfoText}>Awaiting employer confirmation</Text>
           </View>
         )}
 
-        {status === 'rejected' && (
+        {status === 'rejected' && !jobDeleted && (
           <View style={styles.rejectedInfo}>
             <Ionicons name="close-circle" size={20} color="#dc2626" />
-            <Text style={styles.rejectedInfoText}>
-              Application was not accepted
-            </Text>
+            <Text style={styles.rejectedInfoText}>Not selected for this job</Text>
+          </View>
+        )}
+
+        {status === 'shortlisted' && !jobDeleted && (
+          <View style={styles.shortlistedInfo}>
+            <Ionicons name="star" size={20} color="#f59e0b" />
+            <Text style={styles.shortlistedInfoText}>Employer is reviewing your profile</Text>
           </View>
         )}
       </View>
     );
   };
+
+  const offersWithConflicts = getOffersWithConflicts();
+  const pendingOffersCount = offersWithConflicts.length;
 
   if (isLoading) {
     return (
@@ -225,58 +645,113 @@ export default function MyJobsScreen() {
       </View>
 
       {/* Tabs */}
-      <View style={styles.tabContainer}>
-        <TouchableOpacity
-          style={[styles.tab, selectedTab === 'applied' && styles.activeTab]}
-          onPress={() => setSelectedTab('applied')}
-        >
-          <Text style={[styles.tabText, selectedTab === 'applied' && styles.activeTabText]}>
-            Applied
-          </Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.tab, selectedTab === 'accepted' && styles.activeTab]}
-          onPress={() => setSelectedTab('accepted')}
-        >
-          <Text style={[styles.tabText, selectedTab === 'accepted' && styles.activeTabText]}>
-            Hired
-          </Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.tab, selectedTab === 'completed' && styles.activeTab]}
-          onPress={() => setSelectedTab('completed')}
-        >
-          <Text style={[styles.tabText, selectedTab === 'completed' && styles.activeTabText]}>
-            Completed
-          </Text>
-        </TouchableOpacity>
-      </View>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.tabScroll}>
+        <View style={styles.tabContainer}>
+          <TouchableOpacity
+            style={[styles.tab, selectedTab === 'offers' && styles.activeTab]}
+            onPress={() => setSelectedTab('offers')}
+          >
+            <Text style={[styles.tabText, selectedTab === 'offers' && styles.activeTabText]}>
+              Offers
+            </Text>
+            {pendingOffersCount > 0 && (
+              <View style={styles.tabBadge}>
+                <Text style={styles.tabBadgeText}>{pendingOffersCount}</Text>
+              </View>
+            )}
+          </TouchableOpacity>
+          
+          <TouchableOpacity
+            style={[styles.tab, selectedTab === 'active' && styles.activeTab]}
+            onPress={() => setSelectedTab('active')}
+          >
+            <Text style={[styles.tabText, selectedTab === 'active' && styles.activeTabText]}>
+              Active
+            </Text>
+          </TouchableOpacity>
+          
+          <TouchableOpacity
+            style={[styles.tab, selectedTab === 'applied' && styles.activeTab]}
+            onPress={() => setSelectedTab('applied')}
+          >
+            <Text style={[styles.tabText, selectedTab === 'applied' && styles.activeTabText]}>
+              Applied
+            </Text>
+          </TouchableOpacity>
+          
+          <TouchableOpacity
+            style={[styles.tab, selectedTab === 'completed' && styles.activeTab]}
+            onPress={() => setSelectedTab('completed')}
+          >
+            <Text style={[styles.tabText, selectedTab === 'completed' && styles.activeTabText]}>
+              History
+            </Text>
+          </TouchableOpacity>
+        </View>
+      </ScrollView>
 
-      {/* Jobs List */}
-      <FlatList
-        data={getFilteredApplications()}
-        renderItem={renderJobCard}
-        keyExtractor={(item) => item.id}
-        contentContainerStyle={styles.listContent}
-        refreshControl={
-          <RefreshControl refreshing={isRefreshing} onRefresh={onRefresh} colors={[COLORS.worker.primary]} />
-        }
-        ListEmptyComponent={
-          <View style={styles.emptyState}>
-            <Ionicons name="briefcase-outline" size={64} color={COLORS.gray[300]} />
-            <Text style={styles.emptyTitle}>
-              No {selectedTab === 'applied' ? 'pending applications' : selectedTab === 'accepted' ? 'hired jobs' : 'completed jobs'}
-            </Text>
-            <Text style={styles.emptySubtitle}>
-              {selectedTab === 'applied' 
-                ? 'Jobs you apply for will appear here'
-                : selectedTab === 'accepted'
-                ? 'Accepted jobs will appear here'
-                : 'Completed jobs will appear here'}
-            </Text>
-          </View>
-        }
-      />
+      {/* Content */}
+      {selectedTab === 'offers' ? (
+        <ScrollView
+          contentContainerStyle={styles.listContent}
+          refreshControl={
+            <RefreshControl refreshing={isRefreshing} onRefresh={onRefresh} colors={[COLORS.worker.primary]} />
+          }
+        >
+          {offersWithConflicts.length === 0 ? (
+            <View style={styles.emptyState}>
+              <Ionicons name="mail-open-outline" size={64} color={COLORS.gray[300]} />
+              <Text style={styles.emptyTitle}>No pending offers</Text>
+              <Text style={styles.emptySubtitle}>
+                When employers accept your applications, offers will appear here for you to review
+              </Text>
+            </View>
+          ) : (
+            <>
+              <View style={styles.infoBox}>
+                <Ionicons name="information-circle" size={20} color={COLORS.worker.primary} />
+                <Text style={styles.infoText}>
+                  Review offers below. Jobs at the same time are highlighted in orange - you can only accept one.
+                </Text>
+              </View>
+              {offersWithConflicts.map(renderOfferCard)}
+            </>
+          )}
+        </ScrollView>
+      ) : (
+        <FlatList
+          data={getFilteredApplications()}
+          renderItem={renderJobCard}
+          keyExtractor={(item) => item.id}
+          contentContainerStyle={styles.listContent}
+          refreshControl={
+            <RefreshControl refreshing={isRefreshing} onRefresh={onRefresh} colors={[COLORS.worker.primary]} />
+          }
+          ListEmptyComponent={
+            <View style={styles.emptyState}>
+              <Ionicons 
+                name={selectedTab === 'active' ? 'briefcase-outline' : selectedTab === 'applied' ? 'send-outline' : 'archive-outline'} 
+                size={64} 
+                color={COLORS.gray[300]} 
+              />
+              <Text style={styles.emptyTitle}>
+                {selectedTab === 'active' 
+                  ? 'No active jobs' 
+                  : selectedTab === 'applied' 
+                  ? 'No pending applications'
+                  : 'No history yet'}
+              </Text>
+              <Text style={styles.emptySubtitle}>
+                {selectedTab === 'active'
+                  ? 'Accept offers to start working on jobs'
+                  : selectedTab === 'applied'
+                  ? 'Jobs you apply for will appear here'
+                  : 'Completed and rejected jobs will appear here'}
+              </Text>
+            </View>
+          }
+        />
+      )}
 
       {/* Complete Job Modal */}
       <Modal
@@ -376,25 +851,30 @@ const styles = StyleSheet.create({
     fontWeight: TYPOGRAPHY.weights.bold,
     color: COLORS.gray[900],
   },
+  tabScroll: {
+    backgroundColor: COLORS.white,
+    maxHeight: 50,
+  },
   tabContainer: {
     flexDirection: 'row',
-    backgroundColor: COLORS.white,
-    paddingHorizontal: SPACING.lg,
+    paddingHorizontal: SPACING.md,
     borderBottomWidth: 1,
     borderBottomColor: COLORS.gray[200],
   },
   tab: {
-    flex: 1,
-    paddingVertical: SPACING.md,
+    flexDirection: 'row',
     alignItems: 'center',
+    paddingVertical: SPACING.md,
+    paddingHorizontal: SPACING.md,
     borderBottomWidth: 2,
     borderBottomColor: 'transparent',
+    marginRight: SPACING.xs,
   },
   activeTab: {
     borderBottomColor: COLORS.worker.primary,
   },
   tabText: {
-    fontSize: TYPOGRAPHY.sizes.base,
+    fontSize: TYPOGRAPHY.sizes.sm,
     fontWeight: TYPOGRAPHY.weights.medium,
     color: COLORS.gray[600],
   },
@@ -402,9 +882,113 @@ const styles = StyleSheet.create({
     color: COLORS.worker.primary,
     fontWeight: TYPOGRAPHY.weights.semibold,
   },
+  tabBadge: {
+    backgroundColor: '#dc2626',
+    borderRadius: 10,
+    minWidth: 20,
+    height: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginLeft: 6,
+  },
+  tabBadgeText: {
+    color: COLORS.white,
+    fontSize: 11,
+    fontWeight: TYPOGRAPHY.weights.bold,
+  },
   listContent: {
     padding: SPACING.lg,
+    paddingBottom: SPACING.xl * 2,
   },
+  infoBox: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    backgroundColor: COLORS.worker.bg,
+    padding: SPACING.md,
+    borderRadius: RADIUS.md,
+    marginBottom: SPACING.lg,
+    gap: SPACING.sm,
+  },
+  infoText: {
+    flex: 1,
+    fontSize: TYPOGRAPHY.sizes.sm,
+    color: COLORS.worker.primary,
+    lineHeight: 20,
+  },
+  // Offer Card Styles
+  offerCard: {
+    backgroundColor: COLORS.white,
+    borderRadius: RADIUS.lg,
+    padding: SPACING.lg,
+    marginBottom: SPACING.md,
+    ...SHADOWS.sm,
+  },
+  offerHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: SPACING.md,
+  },
+  offerTitleContainer: {
+    flex: 1,
+    marginRight: SPACING.md,
+  },
+  offerTitle: {
+    fontSize: TYPOGRAPHY.sizes.lg,
+    fontWeight: TYPOGRAPHY.weights.semibold,
+    color: COLORS.gray[900],
+    marginBottom: 4,
+  },
+  offerExpiry: {
+    fontSize: TYPOGRAPHY.sizes.xs,
+    color: '#f59e0b',
+    fontWeight: TYPOGRAPHY.weights.medium,
+  },
+  offerWage: {
+    fontSize: TYPOGRAPHY.sizes.xl,
+    fontWeight: TYPOGRAPHY.weights.bold,
+    color: COLORS.worker.primary,
+  },
+  offerActions: {
+    flexDirection: 'row',
+    gap: SPACING.md,
+    marginTop: SPACING.lg,
+  },
+  rejectButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: SPACING.md,
+    borderRadius: RADIUS.md,
+    borderWidth: 1,
+    borderColor: '#dc2626',
+    gap: SPACING.xs,
+  },
+  rejectButtonText: {
+    fontSize: TYPOGRAPHY.sizes.sm,
+    fontWeight: TYPOGRAPHY.weights.semibold,
+    color: '#dc2626',
+  },
+  acceptButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: SPACING.md,
+    borderRadius: RADIUS.md,
+    backgroundColor: COLORS.worker.primary,
+    gap: SPACING.xs,
+  },
+  acceptButtonText: {
+    fontSize: TYPOGRAPHY.sizes.sm,
+    fontWeight: TYPOGRAPHY.weights.semibold,
+    color: COLORS.white,
+  },
+  disabledButton: {
+    opacity: 0.6,
+  },
+  // Job Card Styles
   jobCard: {
     backgroundColor: COLORS.white,
     borderRadius: RADIUS.lg,
@@ -428,15 +1012,35 @@ const styles = StyleSheet.create({
     color: COLORS.gray[900],
     marginBottom: SPACING.xs,
   },
-  statusBadge: {
-    backgroundColor: COLORS.worker.bg,
+  jobDetails: {
+    marginBottom: SPACING.md,
+  },
+  detailRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: SPACING.xs,
+    gap: SPACING.xs,
+  },
+  detailText: {
+    flex: 1,
+    fontSize: TYPOGRAPHY.sizes.sm,
+    color: COLORS.gray[600],
+  },
+  wage: {
+    fontSize: TYPOGRAPHY.sizes.xl,
+    fontWeight: TYPOGRAPHY.weights.bold,
+    color: COLORS.worker.primary,
+  },
+  // Status Badges
+  appliedBadge: {
+    backgroundColor: '#dbeafe',
     paddingHorizontal: SPACING.sm,
     paddingVertical: 4,
     borderRadius: RADIUS.sm,
     alignSelf: 'flex-start',
   },
-  appliedBadge: {
-    backgroundColor: '#dbeafe',
+  shortlistedBadge: {
+    backgroundColor: '#fef3c7',
     paddingHorizontal: SPACING.sm,
     paddingVertical: 4,
     borderRadius: RADIUS.sm,
@@ -463,32 +1067,67 @@ const styles = StyleSheet.create({
     borderRadius: RADIUS.sm,
     alignSelf: 'flex-start',
   },
+  deletedBadge: {
+    backgroundColor: '#e5e7eb',
+    paddingHorizontal: SPACING.sm,
+    paddingVertical: 4,
+    borderRadius: RADIUS.sm,
+    alignSelf: 'flex-start',
+  },
   statusText: {
     fontSize: TYPOGRAPHY.sizes.xs,
     fontWeight: TYPOGRAPHY.weights.medium,
     color: COLORS.worker.primary,
   },
-  completedText: {
-    color: '#16a34a',
+  // Conflict Styling
+  conflictCard: {
+    borderLeftWidth: 4,
+    borderLeftColor: '#f59e0b',
+    backgroundColor: '#fffbeb',
   },
-  wage: {
-    fontSize: TYPOGRAPHY.sizes.xl,
-    fontWeight: TYPOGRAPHY.weights.bold,
-    color: COLORS.worker.primary,
+  deletedCard: {
+    borderLeftWidth: 4,
+    borderLeftColor: '#9ca3af',
+    backgroundColor: '#f3f4f6',
+    opacity: 0.8,
   },
-  jobDetails: {
-    marginBottom: SPACING.md,
+  deletedText: {
+    color: COLORS.gray[500],
+    textDecorationLine: 'line-through',
   },
-  detailRow: {
+  deletedBanner: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: SPACING.xs,
+    backgroundColor: '#e5e7eb',
+    paddingVertical: SPACING.sm,
+    paddingHorizontal: SPACING.md,
+    borderRadius: RADIUS.sm,
+    marginBottom: SPACING.md,
+    gap: SPACING.xs,
   },
-  detailText: {
-    fontSize: TYPOGRAPHY.sizes.sm,
-    color: COLORS.gray[600],
-    marginLeft: SPACING.xs,
+  deletedBannerText: {
+    flex: 1,
+    fontSize: TYPOGRAPHY.sizes.xs,
+    fontWeight: TYPOGRAPHY.weights.medium,
+    color: '#6b7280',
   },
+  conflictBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fef3c7',
+    paddingVertical: SPACING.sm,
+    paddingHorizontal: SPACING.md,
+    borderRadius: RADIUS.sm,
+    marginBottom: SPACING.md,
+    gap: SPACING.xs,
+  },
+  conflictBannerText: {
+    flex: 1,
+    fontSize: TYPOGRAPHY.sizes.xs,
+    fontWeight: TYPOGRAPHY.weights.medium,
+    color: '#92400e',
+  },
+  // Info boxes
   completeButton: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -531,10 +1170,40 @@ const styles = StyleSheet.create({
     fontWeight: TYPOGRAPHY.weights.medium,
     color: '#dc2626',
   },
+  shortlistedInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: SPACING.md,
+    backgroundColor: '#fef3c7',
+    borderRadius: RADIUS.md,
+    gap: SPACING.xs,
+  },
+  shortlistedInfoText: {
+    fontSize: TYPOGRAPHY.sizes.sm,
+    fontWeight: TYPOGRAPHY.weights.medium,
+    color: '#92400e',
+  },
+  waitingInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: SPACING.md,
+    backgroundColor: '#fef3c7',
+    borderRadius: RADIUS.md,
+    gap: SPACING.xs,
+  },
+  waitingInfoText: {
+    fontSize: TYPOGRAPHY.sizes.sm,
+    fontWeight: TYPOGRAPHY.weights.medium,
+    color: '#b45309',
+  },
+  // Empty state
   emptyState: {
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: SPACING.xl * 3,
+    paddingHorizontal: SPACING.lg,
   },
   emptyTitle: {
     fontSize: TYPOGRAPHY.sizes.lg,
@@ -547,7 +1216,9 @@ const styles = StyleSheet.create({
     fontSize: TYPOGRAPHY.sizes.sm,
     color: COLORS.gray[500],
     textAlign: 'center',
+    lineHeight: 20,
   },
+  // Modal styles
   modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.5)',

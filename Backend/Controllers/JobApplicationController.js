@@ -76,20 +76,36 @@ exports.getMyApplications = async (req, res) => {
       .select(`
         id,
         status,
+        work_status,
         applied_at,
+        completed_at,
         job_postings (
           id,
           title,
           wage,
           address,
-          duration
+          duration,
+          scheduled_date,
+          scheduled_start_time,
+          scheduled_end_time,
+          is_active
         )
       `)
       .eq("employee_id", req.user.id)
       .order("applied_at", { ascending: false });
 
     if (error) return res.status(400).json({ error: error.message });
-    res.json(data);
+    
+    // Filter out applications where the job has been deleted (job_postings is null)
+    // and mark jobs as deleted if they exist but is_active is false
+    const filteredData = (data || []).map(app => {
+      if (!app.job_postings) {
+        return { ...app, job_deleted: true, job_postings: { title: 'Job Deleted', wage: 0, address: 'N/A', duration: 'N/A' } };
+      }
+      return app;
+    });
+    
+    res.json(filteredData);
   } catch (err) {
     res.status(500).json({ error: "Internal server error" });
   }
@@ -127,8 +143,10 @@ exports.markJobCompleted = async (req, res) => {
         *,
         job_postings (
           scheduled_date,
+          scheduled_start_time,
           scheduled_end_time,
-          expected_completion_at
+          expected_completion_at,
+          duration_hours
         )
       `)
       .eq("id", application_id)
@@ -143,20 +161,53 @@ exports.markJobCompleted = async (req, res) => {
       return res.status(400).json({ error: "Can only complete accepted jobs" });
     }
 
+    if (app.work_status === 'completed') {
+      return res.status(400).json({ error: "Job is already marked as completed" });
+    }
+
     // Check if the job's scheduled time has passed
     const jobPosting = app.job_postings;
-    if (jobPosting && jobPosting.expected_completion_at) {
-      const expectedCompletion = new Date(jobPosting.expected_completion_at);
-      const now = new Date();
+    const now = new Date();
+    
+    // Check various ways to determine if job time has ended
+    if (jobPosting) {
+      let jobEndTime = null;
       
-      if (now < expectedCompletion) {
-        const timeRemaining = Math.ceil((expectedCompletion - now) / (1000 * 60)); // minutes
+      // Option 1: Check expected_completion_at
+      if (jobPosting.expected_completion_at) {
+        jobEndTime = new Date(jobPosting.expected_completion_at);
+      }
+      // Option 2: Check scheduled_date + scheduled_end_time
+      else if (jobPosting.scheduled_date && jobPosting.scheduled_end_time) {
+        const dateStr = jobPosting.scheduled_date;
+        const timeStr = jobPosting.scheduled_end_time;
+        jobEndTime = new Date(`${dateStr}T${timeStr}`);
+      }
+      // Option 3: Check scheduled_date + scheduled_start_time + duration_hours
+      else if (jobPosting.scheduled_date && jobPosting.scheduled_start_time && jobPosting.duration_hours) {
+        const dateStr = jobPosting.scheduled_date;
+        const timeStr = jobPosting.scheduled_start_time;
+        jobEndTime = new Date(`${dateStr}T${timeStr}`);
+        jobEndTime.setHours(jobEndTime.getHours() + jobPosting.duration_hours);
+      }
+      
+      // If we have an end time and it's in the future, block completion
+      if (jobEndTime && now < jobEndTime) {
+        const timeRemaining = Math.ceil((jobEndTime.getTime() - now.getTime()) / (1000 * 60)); // minutes
         const hoursRemaining = Math.floor(timeRemaining / 60);
         const minutesRemaining = timeRemaining % 60;
         
+        let timeMessage = '';
+        if (hoursRemaining > 0) {
+          timeMessage = `${hoursRemaining}h ${minutesRemaining}m`;
+        } else {
+          timeMessage = `${minutesRemaining} minutes`;
+        }
+        
         return res.status(400).json({ 
-          error: "Cannot mark job as complete before scheduled end time",
-          details: `Job is scheduled to end at ${expectedCompletion.toLocaleString()}. Please wait ${hoursRemaining}h ${minutesRemaining}m.`
+          error: "Cannot mark job as complete yet",
+          details: `The job is scheduled to end at ${jobEndTime.toLocaleString()}. Please wait ${timeMessage} until the scheduled end time.`,
+          scheduled_end: jobEndTime.toISOString()
         });
       }
     }
@@ -319,6 +370,114 @@ exports.getPendingConfirmations = async (req, res) => {
     });
   } catch (err) {
     console.error("GET PENDING CONFIRMATIONS ERROR:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+};
+
+/* --- 10. GET WORKER'S APPLICATIONS WITH SCHEDULE CONFLICTS --- */
+exports.getMyApplicationsWithConflicts = async (req, res) => {
+  try {
+    const employee_id = req.user.id;
+
+    // Try to get conflict information (but don't fail if function doesn't exist)
+    let conflictData = null;
+    try {
+      const { data, error } = await supabase
+        .rpc('get_worker_schedule_conflicts', { worker_id: employee_id });
+      
+      if (!error) {
+        conflictData = data;
+      } else {
+        console.log("Conflict detection not available:", error.message);
+      }
+    } catch (e) {
+      console.log("Conflict detection skipped:", e.message);
+    }
+
+    // Get all applications
+    const { data, error } = await supabase
+      .from("job_applications")
+      .select(`
+        *,
+        job_postings (
+          id,
+          title,
+          category,
+          description,
+          wage,
+          duration,
+          address,
+          scheduled_date,
+          scheduled_start_time,
+          scheduled_end_time,
+          employer:employers (
+            name,
+            business_name
+          )
+        )
+      `)
+      .eq("employee_id", employee_id)
+      .order("created_at", { ascending: false });
+
+    if (error) return res.status(400).json({ error: error.message });
+
+    // Merge conflict data with applications (if available)
+    const applicationsWithConflicts = (data || []).map(app => {
+      const conflictInfo = conflictData?.find(c => c.application_id === app.id);
+      return {
+        ...app,
+        has_conflicts: conflictInfo?.has_conflicts || false,
+        conflicting_application_ids: conflictInfo?.conflicting_application_ids || [],
+        can_confirm: conflictInfo?.can_confirm !== false
+      };
+    });
+
+    res.json(applicationsWithConflicts);
+  } catch (err) {
+    console.error("Get applications with conflicts error:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+};
+
+/* --- 11. VALIDATE JOB ACCEPTANCE (Check for conflicts) --- */
+exports.validateJobAcceptance = async (req, res) => {
+  try {
+    const { application_id } = req.params;
+    const employee_id = req.user.id;
+
+    // Get the application details
+    const { data: app, error: appError } = await supabase
+      .from("job_applications")
+      .select("job_posting_id")
+      .eq("id", application_id)
+      .eq("employee_id", employee_id)
+      .single();
+
+    if (appError || !app) {
+      return res.status(404).json({ error: "Application not found" });
+    }
+
+    // Check if accepting this job would create conflicts
+    const { data: validation, error: validationError } = await supabase
+      .rpc('can_accept_job_without_conflict', {
+        worker_id: employee_id,
+        new_job_id: app.job_posting_id
+      });
+
+    if (validationError) {
+      console.error("Validation error:", validationError);
+      return res.status(500).json({ error: "Failed to validate acceptance" });
+    }
+
+    const result = validation?.[0];
+    
+    res.json({
+      can_accept: result?.can_accept || true,
+      conflict_reason: result?.conflict_reason,
+      conflicting_jobs: result?.conflicting_jobs || []
+    });
+  } catch (err) {
+    console.error("Validate acceptance error:", err);
     res.status(500).json({ error: "Internal server error" });
   }
 };

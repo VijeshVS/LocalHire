@@ -58,6 +58,34 @@ exports.acceptJobOffer = async (req, res) => {
     const { offer_id } = req.params;
     const employee_id = req.user.id;
 
+    // Get the job_posting_id from the offer first
+    const { data: offerData, error: offerError } = await supabase
+      .from("job_offers")
+      .select("job_posting_id")
+      .eq("id", offer_id)
+      .single();
+
+    if (offerError || !offerData) {
+      return res.status(404).json({ error: "Job offer not found" });
+    }
+
+    // Check for schedule conflicts before accepting
+    const { data: validation, error: validationError } = await supabase
+      .rpc('can_accept_job_without_conflict', {
+        worker_id: employee_id,
+        new_job_id: offerData.job_posting_id
+      });
+
+    if (!validationError && validation?.[0]) {
+      const result = validation[0];
+      if (!result.can_accept) {
+        return res.status(400).json({ 
+          error: result.conflict_reason || "You have a schedule conflict with another accepted job",
+          conflicting_jobs: result.conflicting_jobs
+        });
+      }
+    }
+
     // Call the database function to accept offer with conflict checking
     const { data, error } = await supabase.rpc("accept_job_offer", {
       offer_id_param: offer_id,
@@ -73,7 +101,7 @@ exports.acceptJobOffer = async (req, res) => {
     }
 
     // Get offer details for notification
-    const { data: offerData } = await supabase
+    const { data: offerFullData } = await supabase
       .from("job_offers")
       .select(`
         *,
@@ -88,7 +116,7 @@ exports.acceptJobOffer = async (req, res) => {
       .single();
 
     // Notify employer
-    if (offerData && offerData.job_postings) {
+    if (offerFullData && offerFullData.job_postings) {
       const { data: worker } = await supabase
         .from("employees")
         .select("name")
@@ -96,14 +124,14 @@ exports.acceptJobOffer = async (req, res) => {
         .single();
 
       await createNotification(
-        offerData.job_postings.employer_id,
+        offerFullData.job_postings.employer_id,
         "EMPLOYER",
         "offer_accepted",
         "Worker Accepted Your Job Offer!",
-        `${worker?.name || "A worker"} has accepted your offer for "${offerData.job_postings.title}"`,
+        `${worker?.name || "A worker"} has accepted your offer for "${offerFullData.job_postings.title}"`,
         {
           offer_id: offer_id,
-          job_id: offerData.job_posting_id,
+          job_id: offerFullData.job_posting_id,
           worker_id: employee_id
         }
       );
@@ -127,18 +155,50 @@ exports.rejectJobOffer = async (req, res) => {
     const employee_id = req.user.id;
     const { reason } = req.body;
 
-    // Call the database function to reject offer
-    const { data, error } = await supabase.rpc("reject_job_offer", {
-      offer_id_param: offer_id,
-      worker_id_param: employee_id
-    });
+    // Get offer details first
+    const { data: offerData, error: fetchError } = await supabase
+      .from("job_offers")
+      .select(`
+        id,
+        job_posting_id,
+        offer_status,
+        job_postings (
+          title,
+          employer_id
+        )
+      `)
+      .eq("id", offer_id)
+      .eq("employee_id", employee_id)
+      .eq("offer_status", "pending")
+      .single();
 
-    if (error) {
-      return res.status(400).json({ error: error.message });
+    if (fetchError || !offerData) {
+      return res.status(404).json({ error: "Job offer not found or already processed" });
     }
 
-    if (!data.success) {
-      return res.status(400).json({ error: data.error });
+    // Update the offer status
+    const { error: updateError } = await supabase
+      .from("job_offers")
+      .update({ 
+        offer_status: 'rejected',
+        responded_at: new Date().toISOString()
+      })
+      .eq("id", offer_id);
+
+    if (updateError) {
+      return res.status(400).json({ error: updateError.message });
+    }
+
+    // Notify employer using the correct notification schema
+    if (offerData.job_postings?.employer_id) {
+      await createNotification(
+        offerData.job_postings.employer_id,
+        "EMPLOYER",
+        "offer_rejected",
+        "Job Offer Declined",
+        `A worker has declined your job offer for "${offerData.job_postings.title || 'your job'}"`,
+        { offer_id: offer_id, job_id: offerData.job_posting_id }
+      );
     }
 
     res.json({

@@ -4,6 +4,7 @@ require('dotenv').config({ path: path.join(__dirname, '.env') });
 const app=express();
 const cors=require('cors');
 const { supabase } =require('./config/SupabaseClient.js');
+const { runMigrations } = require('./utils/migrations.js');
 
 app.use(cors());
 app.use(express.json());
@@ -60,12 +61,32 @@ const getLocalIP = () => {
     return 'localhost';
 };
 
-app.listen(PORT, '0.0.0.0', ()=>{
-    const localIP = getLocalIP();
-    console.log(`\n🚀 Server is running on port ${PORT}`);
-    console.log(`\n📱 Access from:`);
-    console.log(`   - This machine: http://localhost:${PORT}`);
-    console.log(`   - Other devices: http://${localIP}:${PORT}`);
-    console.log(`   - Android Emulator: http://10.0.2.2:${PORT}`);
-    console.log(`\n✅ Backend API ready at: http://${localIP}:${PORT}/api\n`);
+// Run migrations before starting the server
+async function startServer() {
+    console.log('🚀 LocalHire Backend Starting...\n');
+    
+    // Run database migrations
+    const migrationsOk = await runMigrations();
+    
+    if (!migrationsOk) {
+        console.log('⚠️  Migrations had issues, but server will start anyway.');
+        console.log('   Check the errors above and run migrations manually if needed.\n');
+    }
+    
+    // Start the server
+    app.listen(PORT, '0.0.0.0', ()=>{
+        const localIP = getLocalIP();
+        console.log(`\n🚀 Server is running on port ${PORT}`);
+        console.log(`\n📱 Access from:`);
+        console.log(`   - This machine: http://localhost:${PORT}`);
+        console.log(`   - Other devices: http://${localIP}:${PORT}`);
+        console.log(`   - Android Emulator: http://10.0.2.2:${PORT}`);
+        console.log(`\n✅ Backend API ready at: http://${localIP}:${PORT}/api\n`);
+    });
+}
+
+// Start the application
+startServer().catch(error => {
+    console.error('❌ Failed to start server:', error);
+    process.exit(1);
 });

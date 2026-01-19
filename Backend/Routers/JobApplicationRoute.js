@@ -6,8 +6,12 @@ const { verifyEmployee, verifyToken } = require("../Middleware/Authentication.js
 // Routes that require employee verification
 router.post("/apply", verifyEmployee, employeeAppController.applyForJob);
 router.get("/my-applications", verifyEmployee, employeeAppController.getMyApplications);
+router.get("/my-applications-with-conflicts", verifyEmployee, employeeAppController.getMyApplicationsWithConflicts);
 router.get("/application/:id", verifyEmployee, employeeAppController.getApplicationById);
 router.delete("/withdraw/:application_id", verifyEmployee, employeeAppController.withdrawApplication);
+
+// Validate job acceptance for conflicts
+router.get("/:application_id/validate-acceptance", verifyEmployee, employeeAppController.validateJobAcceptance);
 
 // Worker marks job as completed
 router.patch("/:application_id/complete", verifyEmployee, employeeAppController.markJobCompleted);

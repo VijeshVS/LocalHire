@@ -290,13 +290,17 @@ $$ LANGUAGE plpgsql;
 -- Function to reject job offer
 CREATE OR REPLACE FUNCTION reject_job_offer(offer_id_param UUID, worker_id_param UUID)
 RETURNS JSON AS $$
+DECLARE
+    employer_id_val UUID;
+    job_title_val TEXT;
 BEGIN
-    UPDATE job_offers
-    SET offer_status = 'rejected',
-        responded_at = NOW()
-    WHERE id = offer_id_param
-        AND employee_id = worker_id_param
-        AND offer_status = 'pending';
+    -- Get employer info before rejecting
+    SELECT jp.employer_id, jp.title INTO employer_id_val, job_title_val
+    FROM job_offers jo
+    JOIN job_postings jp ON jo.job_posting_id = jp.id
+    WHERE jo.id = offer_id_param
+        AND jo.employee_id = worker_id_param
+        AND jo.offer_status = 'pending';
     
     IF NOT FOUND THEN
         RETURN json_build_object(
@@ -304,6 +308,23 @@ BEGIN
             'error', 'Job offer not found or already processed'
         );
     END IF;
+    
+    UPDATE job_offers
+    SET offer_status = 'rejected',
+        responded_at = NOW()
+    WHERE id = offer_id_param;
+    
+    -- Notify employer using correct notification schema (user_id, user_role)
+    INSERT INTO notifications (user_id, user_role, type, title, message, metadata, is_read)
+    VALUES (
+        employer_id_val,
+        'EMPLOYER',
+        'offer_rejected',
+        'Job Offer Declined',
+        'A worker has declined your job offer for "' || job_title_val || '"',
+        jsonb_build_object('offer_id', offer_id_param),
+        false
+    );
     
     RETURN json_build_object(
         'success', true,

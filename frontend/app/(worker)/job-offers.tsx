@@ -54,7 +54,7 @@ export default function JobOffersScreen() {
   const handleAcceptOffer = async (offerId: string, jobTitle: string) => {
     Alert.alert(
       'Accept Job Offer',
-      `Do you want to accept the offer for "${jobTitle}"?\n\nNote: Accepting this will reject any conflicting job offers.`,
+      `Do you want to accept the offer for "${jobTitle}"?\n\nNote: If this conflicts with another accepted job, you won't be able to accept it.`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -72,7 +72,17 @@ export default function JobOffersScreen() {
                 Alert.alert('Error', response.error || 'Failed to accept job offer');
               }
             } catch (error: any) {
-              Alert.alert('Error', error.message || 'Failed to accept job offer');
+              // Check if it's a schedule conflict error
+              const errorMessage = error.message || 'Failed to accept job offer';
+              if (errorMessage.includes('schedule conflict') || errorMessage.includes('time slot')) {
+                Alert.alert(
+                  'Schedule Conflict',
+                  'You have already accepted a job at this time. Please complete or cancel it first before accepting this offer.',
+                  [{ text: 'OK' }]
+                );
+              } else {
+                Alert.alert('Error', errorMessage);
+              }
             } finally {
               setProcessingOffer(null);
             }

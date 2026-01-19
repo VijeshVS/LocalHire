@@ -9,3 +9,4 @@ export * from './locationService';
 export * from './employerApplicationService';
 export * from './analyticsService';
 export * from './jobCompletionService';
+export * from './scheduleService';
