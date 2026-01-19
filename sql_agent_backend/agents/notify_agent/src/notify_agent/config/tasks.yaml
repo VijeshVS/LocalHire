@@ -1,7 +1,6 @@
 query_task:
   description: >
-    Based on the job description, generate the optimized geospatial SQL query which returns 
-    the list of employees.
+    Based on the job description, generate the SQL query which returns the list of employees.
 
     Job Description: {input}
     Job Location: {lat} Latitude, {long} Longitude  
@@ -43,7 +42,9 @@ query_task:
     The query must be strictly read-only — no INSERT, UPDATE, DELETE, TRUNCATE, or any operation 
     that modifies data. Only retrieval is allowed.
   expected_output: >
-    For output, generate an optimized SQL query for PostgreSQL with the PostGIS extension that returns 
-    all employees who match a given job description.
+    Output SQL query to get the id, name, email, phone, years_of_experience, 
+    language, status, rating, location, distance_m from the employees table.
+    distance_m is the calculated distance in meters from the job location to the employee location.
+    Do not provide any explanation or additional text, output only the SQL query.
   agent: query_agent
   output_file: output.txt

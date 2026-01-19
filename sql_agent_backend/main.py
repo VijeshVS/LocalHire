@@ -38,25 +38,29 @@ class CompleteRequest(BaseModel):
 def complete(req: CompleteRequest):
     try:    
         # for now static, it must be dynamic
-        user_id = "28dc664b-fc60-4975-848e-19152911d9bc"
+        user_id = req.user_id
+
+        print(user_id)
 
         query = f"""
             SELECT
-            ST_Y(location::geometry) AS lat,
-            ST_X(location::geometry) AS long
+            ST_Y(location::geometry)::numeric AS lat,
+            ST_X(location::geometry)::numeric AS long
             FROM employers
             WHERE id = '{user_id}';
         """
 
+        print(query)
+
         response = (
             supabase
-            .rpc("execute_sql", {"query": query.strip()})
+            .rpc("get_employer_location", {"uid": user_id})
             .execute()
         )
 
         print(response)
 
-        lat, long = response.data[0]['lat'], response.data[0]['long'] # type: ignore
+        lat, long = response.data['lat'], response.data['lng'] # type: ignore
         print(lat,long)
         with open(SQL_INPUT_FILE, "w") as f:
             json.dump({
