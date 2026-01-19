@@ -24,17 +24,140 @@ const jobCategories = [
   { id: 'cleaning', name: 'Cleaning', icon: 'sparkles' as const, count: 0, color: '#8b5cf6' },
   { id: 'helper', name: 'Helper', icon: 'people' as const, count: 0, color: '#f59e0b' },
   { id: 'driver', name: 'Driver', icon: 'car' as const, count: 0, color: '#10b981' },
+  { id: 'plumbing', name: 'Plumbing', icon: 'water' as const, count: 0, color: '#06b6d4' },
+  { id: 'electrical', name: 'Electrical', icon: 'flash' as const, count: 0, color: '#eab308' },
+  { id: 'carpentry', name: 'Carpentry', icon: 'construct' as const, count: 0, color: '#a16207' },
+  { id: 'gardening', name: 'Gardening', icon: 'leaf' as const, count: 0, color: '#22c55e' },
+  { id: 'moving', name: 'Moving', icon: 'cube' as const, count: 0, color: '#f97316' },
+  { id: 'cooking', name: 'Cooking', icon: 'restaurant' as const, count: 0, color: '#ef4444' },
+  { id: 'delivery', name: 'Delivery', icon: 'bicycle' as const, count: 0, color: '#6366f1' },
+  { id: 'security', name: 'Security', icon: 'shield' as const, count: 0, color: '#64748b' },
+  { id: 'tutoring', name: 'Tutoring', icon: 'book' as const, count: 0, color: '#a855f7' },
+  { id: 'childcare', name: 'Childcare', icon: 'happy' as const, count: 0, color: '#ec4899' },
+  { id: 'eldercare', name: 'Elder Care', icon: 'heart' as const, count: 0, color: '#f43f5e' },
+  { id: 'petcare', name: 'Pet Care', icon: 'paw' as const, count: 0, color: '#14b8a6' },
+  { id: 'laundry', name: 'Laundry', icon: 'shirt' as const, count: 0, color: '#0ea5e9' },
+  { id: 'repair', name: 'Repair', icon: 'hammer' as const, count: 0, color: '#78716c' },
+  { id: 'other', name: 'Other', icon: 'ellipsis-horizontal' as const, count: 0, color: '#9ca3af' },
 ];
+
+// Format time ago helper
+const formatTimeAgo = (dateString: string) => {
+  if (!dateString) return 'Recently';
+  
+  const date = new Date(dateString);
+  const now = new Date();
+  const diffMs = now.getTime() - date.getTime();
+  const diffMins = Math.floor(diffMs / 60000);
+  const diffHours = Math.floor(diffMs / 3600000);
+  const diffDays = Math.floor(diffMs / 86400000);
+
+  if (diffMins < 1) return 'Just now';
+  if (diffMins < 60) return `${diffMins}m ago`;
+  if (diffHours < 24) return `${diffHours}h ago`;
+  if (diffDays < 7) return `${diffDays}d ago`;
+  return date.toLocaleDateString();
+};
+
+// Format scheduled time for display
+const formatScheduledTime = (startTime: string, endTime: string) => {
+  if (!startTime || !endTime) return 'Flexible';
+  
+  const formatTime = (time: string) => {
+    const [hours, minutes] = time.split(':');
+    const h = parseInt(hours);
+    const ampm = h >= 12 ? 'PM' : 'AM';
+    const hour12 = h % 12 || 12;
+    return `${hour12}:${minutes} ${ampm}`;
+  };
+  
+  return `${formatTime(startTime)} - ${formatTime(endTime)}`;
+};
+
+// Get urgency based on scheduled date
+const getJobUrgency = (scheduledDate: string) => {
+  if (!scheduledDate) return 'flexible';
+  
+  const scheduled = new Date(scheduledDate);
+  const today = new Date();
+  const tomorrow = new Date(today);
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  
+  scheduled.setHours(0, 0, 0, 0);
+  today.setHours(0, 0, 0, 0);
+  tomorrow.setHours(0, 0, 0, 0);
+  
+  if (scheduled.getTime() === today.getTime()) return 'today';
+  if (scheduled.getTime() === tomorrow.getTime()) return 'tomorrow';
+  if (scheduled < today) return 'past';
+  return 'upcoming';
+};
+
+// Format scheduled date for display
+const formatScheduledDate = (dateString: string) => {
+  if (!dateString) return 'Flexible';
+  const date = new Date(dateString);
+  const today = new Date();
+  const tomorrow = new Date(today);
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  
+  date.setHours(0, 0, 0, 0);
+  today.setHours(0, 0, 0, 0);
+  tomorrow.setHours(0, 0, 0, 0);
+  
+  if (date.getTime() === today.getTime()) return 'Today';
+  if (date.getTime() === tomorrow.getTime()) return 'Tomorrow';
+  
+  return date.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
+};
 
 export default function WorkerSearch() {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('all');
-  const [sortBy, setSortBy] = useState<'distance' | 'pay' | 'rating'>('distance');
+  const [sortBy, setSortBy] = useState<'distance' | 'pay' | 'rating' | 'date'>('distance');
   const [showFilters, setShowFilters] = useState(false);
   const [searchResults, setSearchResults] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [userLocation, setUserLocation] = useState<{latitude: number, longitude: number} | null>(null);
   const [locationName, setLocationName] = useState<string>('Getting location...');
+
+  // Sort jobs based on selected criteria
+  const getSortedJobs = (jobs: any[]) => {
+    const sorted = [...jobs];
+    switch (sortBy) {
+      case 'distance':
+        return sorted.sort((a, b) => {
+          const distA = parseFloat(a.distance?.replace('km', '') || '999');
+          const distB = parseFloat(b.distance?.replace('km', '') || '999');
+          return distA - distB;
+        });
+      case 'pay':
+        return sorted.sort((a, b) => (b.pay || 0) - (a.pay || 0)); // Highest pay first
+      case 'rating':
+        return sorted.sort((a, b) => (b.rating || 0) - (a.rating || 0)); // Highest rating first
+      case 'date':
+        return sorted.sort((a, b) => {
+          const dateA = new Date(a.created_at || 0).getTime();
+          const dateB = new Date(b.created_at || 0).getTime();
+          return dateB - dateA; // Newest first
+        });
+      default:
+        return sorted;
+    }
+  };
+
+  // Get filtered jobs by category and then sorted
+  const getFilteredAndSortedJobs = () => {
+    let filtered = searchResults;
+    if (selectedCategory !== 'all') {
+      filtered = searchResults.filter(job => 
+        job.category?.toLowerCase() === selectedCategory.toLowerCase()
+      );
+    }
+    return getSortedJobs(filtered);
+  };
+
+  const displayedJobs = getFilteredAndSortedJobs();
 
   useEffect(() => {
     getUserLocationAndFetchJobs();
@@ -94,10 +217,14 @@ export default function WorkerSearch() {
           company: 'Employer',
           distance: job.distance_km ? `${job.distance_km.toFixed(1)}km` : (job.dist_km ? `${job.dist_km.toFixed(1)}km` : 'N/A'),
           pay: job.wage || 0,
-          urgency: 'today',
+          urgency: getJobUrgency(job.scheduled_date),
+          scheduledDate: formatScheduledDate(job.scheduled_date),
+          scheduledTime: formatScheduledTime(job.scheduled_start_time, job.scheduled_end_time),
           location: job.address || 'N/A',
           rating: 4.0,
-          category: job.category || 'general'
+          category: job.category || 'general',
+          created_at: job.created_at,
+          postedTime: formatTimeAgo(job.created_at)
         }));
         setSearchResults(formattedJobs);
       } else {
@@ -144,10 +271,14 @@ export default function WorkerSearch() {
           company: 'Employer',
           distance: job.dist_km ? `${job.dist_km.toFixed(1)}km` : 'N/A',
           pay: job.wage || 0,
-          urgency: 'today',
+          urgency: getJobUrgency(job.scheduled_date),
+          scheduledDate: formatScheduledDate(job.scheduled_date),
+          scheduledTime: formatScheduledTime(job.scheduled_start_time, job.scheduled_end_time),
           location: job.address || 'N/A',
           rating: 4.0,
-          category: job.category || 'general'
+          category: job.category || 'general',
+          created_at: job.created_at,
+          postedTime: formatTimeAgo(job.created_at)
         }));
         setSearchResults(formattedJobs);
       } else {
@@ -161,14 +292,20 @@ export default function WorkerSearch() {
     }
   };
 
-  const getUrgencyConfig = (urgency: string) => {
+  const getUrgencyConfig = (urgency: string, scheduledDate?: string) => {
     switch (urgency) {
       case 'immediate':
         return { text: '🔥 URGENT', color: COLORS.status.error, bg: '#fef2f2' };
       case 'today':
-        return { text: 'Today', color: COLORS.status.warning, bg: '#fef3c7' };
+        return { text: '📅 Today', color: COLORS.status.warning, bg: '#fef3c7' };
+      case 'tomorrow':
+        return { text: '📅 Tomorrow', color: COLORS.status.info, bg: '#dbeafe' };
+      case 'upcoming':
+        return { text: scheduledDate || 'Upcoming', color: COLORS.status.info, bg: '#dbeafe' };
+      case 'flexible':
+        return { text: 'Flexible', color: COLORS.gray[600], bg: COLORS.gray[100] };
       default:
-        return { text: 'Tomorrow', color: COLORS.status.info, bg: '#dbeafe' };
+        return { text: scheduledDate || 'Flexible', color: COLORS.gray[600], bg: COLORS.gray[100] };
     }
   };
 
@@ -206,7 +343,7 @@ export default function WorkerSearch() {
   );
 
   const renderJobCard = ({ item }: any) => {
-    const urgency = getUrgencyConfig(item.urgency);
+    const urgency = getUrgencyConfig(item.urgency, item.scheduledDate);
 
     return (
       <TouchableOpacity
@@ -214,14 +351,12 @@ export default function WorkerSearch() {
         onPress={() => router.push(`/(worker)/job/${item.id}`)}
         activeOpacity={0.7}
       >
-        {/* Urgency Badge */}
-        {item.urgency === 'immediate' && (
-          <View style={[styles.urgencyBadge, { backgroundColor: urgency.bg }]}>
-            <Text style={[styles.urgencyText, { color: urgency.color }]}>
-              {urgency.text}
-            </Text>
-          </View>
-        )}
+        {/* Date Badge - Always show */}
+        <View style={[styles.urgencyBadge, { backgroundColor: urgency.bg }]}>
+          <Text style={[styles.urgencyText, { color: urgency.color }]}>
+            {urgency.text}
+          </Text>
+        </View>
 
         {/* Company Logo */}
         <View style={styles.companyLogo}>
@@ -241,13 +376,13 @@ export default function WorkerSearch() {
             </View>
             <View style={styles.metaDivider} />
             <View style={styles.metaItem}>
-              <Ionicons name="briefcase" size={14} color={COLORS.gray[500]} />
-              <Text style={styles.metaText}>{item.category}</Text>
+              <Ionicons name="time-outline" size={14} color={COLORS.gray[500]} />
+              <Text style={styles.metaText}>{item.scheduledTime || 'Flexible'}</Text>
             </View>
             <View style={styles.metaDivider} />
             <View style={styles.metaItem}>
-              <Ionicons name="star" size={14} color="#f59e0b" />
-              <Text style={styles.metaText}>{item.rating}</Text>
+              <Ionicons name="briefcase" size={14} color={COLORS.gray[500]} />
+              <Text style={styles.metaText}>{item.category}</Text>
             </View>
           </View>
 
@@ -370,6 +505,23 @@ export default function WorkerSearch() {
                 Rating
               </Text>
             </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.sortButton, sortBy === 'date' && styles.sortButtonActive]}
+              onPress={() => setSortBy('date')}
+            >
+              <Ionicons
+                name="calendar"
+                size={16}
+                color={sortBy === 'date' ? COLORS.white : COLORS.gray[600]}
+              />
+              <Text style={[
+                styles.sortButtonText,
+                sortBy === 'date' && styles.sortButtonTextActive
+              ]}>
+                Newest
+              </Text>
+            </TouchableOpacity>
           </View>
         </View>
       )}
@@ -388,18 +540,25 @@ export default function WorkerSearch() {
 
       {/* Results */}
       <View style={styles.resultsHeader}>
-        <Text style={styles.resultsCount}>{searchResults.length} jobs found</Text>
+        <Text style={styles.resultsCount}>{displayedJobs.length} jobs found</Text>
         <Text style={styles.resultsSort}>Sorted by {sortBy}</Text>
       </View>
 
       {/* Job List */}
       <FlatList
-        data={searchResults}
+        data={displayedJobs}
         renderItem={renderJobCard}
         keyExtractor={(item) => item.id}
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.jobsList}
         ItemSeparatorComponent={() => <View style={{ height: SPACING.md }} />}
+        ListEmptyComponent={
+          <View style={styles.emptyContainer}>
+            <Ionicons name="search-outline" size={48} color={COLORS.gray[400]} />
+            <Text style={styles.emptyText}>No jobs found</Text>
+            <Text style={styles.emptySubtext}>Try a different search or category</Text>
+          </View>
+        }
       />
     </SafeAreaView>
   );
@@ -679,5 +838,22 @@ const styles = StyleSheet.create({
     fontSize: TYPOGRAPHY.sizes.sm,
     color: COLORS.worker.dark,
     marginLeft: 4,
+  },
+  emptyContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: SPACING.xxxl,
+  },
+  emptyText: {
+    fontSize: TYPOGRAPHY.sizes.lg,
+    fontWeight: TYPOGRAPHY.weights.semibold,
+    color: COLORS.gray[600],
+    marginTop: SPACING.md,
+  },
+  emptySubtext: {
+    fontSize: TYPOGRAPHY.sizes.sm,
+    color: COLORS.gray[400],
+    marginTop: SPACING.xs,
   },
 });

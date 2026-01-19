@@ -71,7 +71,6 @@ export default function WorkerLayout() {
               color={color} 
             />
           ),
-          tabBarBadge: 2, // Example badge
         }}
       />
       <Tabs.Screen
@@ -85,7 +84,6 @@ export default function WorkerLayout() {
               color={color} 
             />
           ),
-          tabBarBadge: 3, // Example badge
         }}
       />
       <Tabs.Screen

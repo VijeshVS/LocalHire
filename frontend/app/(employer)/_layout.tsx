@@ -113,6 +113,12 @@ export default function EmployerLayout() {
         }}
       />
       <Tabs.Screen
+        name="profile-edit"
+        options={{
+          href: null,
+        }}
+      />
+      <Tabs.Screen
         name="chat/[id]"
         options={{
           href: null,

@@ -18,10 +18,82 @@ import { useAuth } from '../../context/AuthContext';
 import { findNearbyJobs } from '../../services/locationService';
 import { getJobOffers } from '../../services/jobOfferService';
 import { getMyApplications } from '../../services/applicationService';
+import { getNotifications } from '../../services/notificationService';
 import JobCompletionModal from '../../components/JobCompletionModal';
 import * as Location from 'expo-location';
 
 type AvailabilityStatus = 'available' | 'busy' | 'offline';
+
+// Format time ago helper
+const formatTimeAgo = (dateString: string) => {
+  if (!dateString) return 'Recently';
+  
+  const date = new Date(dateString);
+  const now = new Date();
+  const diffMs = now.getTime() - date.getTime();
+  const diffMins = Math.floor(diffMs / 60000);
+  const diffHours = Math.floor(diffMs / 3600000);
+  const diffDays = Math.floor(diffMs / 86400000);
+
+  if (diffMins < 1) return 'Just now';
+  if (diffMins < 60) return `${diffMins}m ago`;
+  if (diffHours < 24) return `${diffHours}h ago`;
+  if (diffDays < 7) return `${diffDays}d ago`;
+  return date.toLocaleDateString();
+};
+
+// Format scheduled time for display
+const formatScheduledTime = (startTime: string, endTime: string) => {
+  if (!startTime || !endTime) return 'Flexible';
+  
+  const formatTime = (time: string) => {
+    const [hours, minutes] = time.split(':');
+    const h = parseInt(hours);
+    const ampm = h >= 12 ? 'PM' : 'AM';
+    const hour12 = h % 12 || 12;
+    return `${hour12}:${minutes} ${ampm}`;
+  };
+  
+  return `${formatTime(startTime)} - ${formatTime(endTime)}`;
+};
+
+// Get urgency based on scheduled date
+const getJobUrgency = (scheduledDate: string) => {
+  if (!scheduledDate) return 'flexible';
+  
+  const scheduled = new Date(scheduledDate);
+  const today = new Date();
+  const tomorrow = new Date(today);
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  
+  // Reset time parts for date comparison
+  scheduled.setHours(0, 0, 0, 0);
+  today.setHours(0, 0, 0, 0);
+  tomorrow.setHours(0, 0, 0, 0);
+  
+  if (scheduled.getTime() === today.getTime()) return 'today';
+  if (scheduled.getTime() === tomorrow.getTime()) return 'tomorrow';
+  if (scheduled < today) return 'past';
+  return 'upcoming';
+};
+
+// Format scheduled date for display
+const formatScheduledDate = (dateString: string) => {
+  if (!dateString) return 'Flexible';
+  const date = new Date(dateString);
+  const today = new Date();
+  const tomorrow = new Date(today);
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  
+  date.setHours(0, 0, 0, 0);
+  today.setHours(0, 0, 0, 0);
+  tomorrow.setHours(0, 0, 0, 0);
+  
+  if (date.getTime() === today.getTime()) return 'Today';
+  if (date.getTime() === tomorrow.getTime()) return 'Tomorrow';
+  
+  return date.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
+};
 
 export default function WorkerHome() {
   const { user } = useAuth();
@@ -32,12 +104,14 @@ export default function WorkerHome() {
   const [userLocation, setUserLocation] = useState<{latitude: number, longitude: number} | null>(null);
   const [locationName, setLocationName] = useState<string>('Getting location...');
   const [jobOffersCount, setJobOffersCount] = useState<number>(0);
+  const [notificationCount, setNotificationCount] = useState<number>(0);
   const [completionModalVisible, setCompletionModalVisible] = useState(false);
   const [jobToComplete, setJobToComplete] = useState<any>(null);
 
   useEffect(() => {
     getUserLocationAndFetchJobs();
     fetchJobOffersCount();
+    fetchNotificationCount();
     checkForCompletedJobs();
   }, []);
 
@@ -47,6 +121,17 @@ export default function WorkerHome() {
       setJobOffersCount(response.offers?.length || 0);
     } catch (error) {
       console.error('Error fetching job offers:', error);
+    }
+  };
+
+  const fetchNotificationCount = async () => {
+    try {
+      const notifications = await getNotifications();
+      const unreadCount = notifications.filter((n: any) => !n.is_read).length;
+      setNotificationCount(unreadCount);
+    } catch (error) {
+      console.error('Error fetching notifications:', error);
+      setNotificationCount(0);
     }
   };
 
@@ -144,11 +229,15 @@ export default function WorkerHome() {
         title: job.title,
         distance: job.distance_km ? `${job.distance_km.toFixed(1)}km` : (job.dist_km ? `${job.dist_km.toFixed(1)}km` : 'N/A'),
         pay: job.wage || 0,
-        urgency: 'today',
+        urgency: getJobUrgency(job.scheduled_date),
+        scheduledDate: formatScheduledDate(job.scheduled_date),
+        scheduledTime: formatScheduledTime(job.scheduled_start_time, job.scheduled_end_time),
         location: job.address || 'N/A',
         rating: 4.0,
         company: 'Employer',
-        category: job.category || 'General'
+        category: job.category || 'General',
+        created_at: job.created_at,
+        postedTime: formatTimeAgo(job.created_at)
       }));
       setNearbyJobs(formattedJobs);
     } catch (error: any) {
@@ -193,21 +282,27 @@ export default function WorkerHome() {
     }
   };
 
-  const getUrgencyBadge = (urgency: string) => {
+  const getUrgencyBadge = (urgency: string, scheduledDate?: string) => {
     switch (urgency) {
       case 'immediate':
         return { text: '🔥 URGENT', color: COLORS.status.error, bg: '#fef2f2' };
       case 'today':
-        return { text: 'Today', color: COLORS.status.warning, bg: '#fef3c7' };
+        return { text: '📅 Today', color: COLORS.status.warning, bg: '#fef3c7' };
+      case 'tomorrow':
+        return { text: '📅 Tomorrow', color: COLORS.status.info, bg: '#dbeafe' };
+      case 'upcoming':
+        return { text: scheduledDate || 'Upcoming', color: COLORS.status.info, bg: '#dbeafe' };
+      case 'flexible':
+        return { text: 'Flexible', color: COLORS.gray[600], bg: COLORS.gray[100] };
       default:
-        return { text: 'Tomorrow', color: COLORS.status.info, bg: '#dbeafe' };
+        return { text: scheduledDate || 'Flexible', color: COLORS.gray[600], bg: COLORS.gray[100] };
     }
   };
 
   const config = getAvailabilityConfig(availability);
 
   const renderJobCard = ({ item }: any) => {
-    const urgency = getUrgencyBadge(item.urgency);
+    const urgency = getUrgencyBadge(item.urgency, item.scheduledDate);
     
     return (
       <TouchableOpacity 
@@ -215,12 +310,10 @@ export default function WorkerHome() {
         onPress={() => router.push(`/(worker)/job/${item.id}`)}
         activeOpacity={0.7}
       >
-        {/* Urgency Badge */}
-        {item.urgency === 'immediate' && (
-          <View style={[styles.urgencyBadge, { backgroundColor: urgency.bg }]}>
-            <Text style={[styles.urgencyText, { color: urgency.color }]}>{urgency.text}</Text>
-          </View>
-        )}
+        {/* Date Badge - Always show */}
+        <View style={[styles.urgencyBadge, { backgroundColor: urgency.bg }]}>
+          <Text style={[styles.urgencyText, { color: urgency.color }]}>{urgency.text}</Text>
+        </View>
 
         {/* Job Header */}
         <View style={styles.jobHeader}>
@@ -242,13 +335,13 @@ export default function WorkerHome() {
           </View>
           <View style={styles.metaDivider} />
           <View style={styles.metaItem}>
-            <Ionicons name="briefcase" size={14} color={COLORS.gray[500]} />
-            <Text style={styles.metaText}>{item.category}</Text>
+            <Ionicons name="time-outline" size={14} color={COLORS.gray[500]} />
+            <Text style={styles.metaText}>{item.scheduledTime || 'Flexible'}</Text>
           </View>
           <View style={styles.metaDivider} />
           <View style={styles.metaItem}>
-            <Ionicons name="star" size={14} color="#f59e0b" />
-            <Text style={styles.metaText}>{item.rating}</Text>
+            <Ionicons name="briefcase" size={14} color={COLORS.gray[500]} />
+            <Text style={styles.metaText}>{item.category}</Text>
           </View>
         </View>
 
@@ -291,9 +384,11 @@ export default function WorkerHome() {
             onPress={() => router.push('/(worker)/notifications')}
           >
             <Ionicons name="notifications-outline" size={24} color={COLORS.gray[700]} />
-            <View style={styles.notificationBadge}>
-              <Text style={styles.notificationCount}>3</Text>
-            </View>
+            {notificationCount > 0 && (
+              <View style={styles.notificationBadge}>
+                <Text style={styles.notificationCount}>{notificationCount}</Text>
+              </View>
+            )}
           </TouchableOpacity>
         </View>
       </View>

@@ -7,20 +7,53 @@ import {
   ScrollView,
   Dimensions,
   ActivityIndicator,
+  RefreshControl,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import Icon from '../../components/Icon';
 import { getEmployerAnalytics } from '../../services/analyticsService';
-import { COLORS } from '../../constants/theme';
+import { COLORS, SPACING, RADIUS, TYPOGRAPHY, SHADOWS } from '../../constants/theme';
 
 const { width } = Dimensions.get('window');
+
+interface AnalyticsData {
+  overview: {
+    totalJobs: number;
+    activeJobs: number;
+    completedJobs: number;
+    totalSpent: number;
+    totalApplications: number;
+    totalHires: number;
+    completedHires: number;
+    inProgressHires: number;
+    avgJobCompletion: number;
+  };
+  applications: {
+    total: number;
+    accepted: number;
+    shortlisted: number;
+    rejected: number;
+    pending: number;
+    completed: number;
+    inProgress: number;
+  };
+  monthlyStats: {
+    month: string;
+    year: number;
+    jobs: number;
+    spent: number;
+    completed: number;
+  }[];
+}
 
 export default function Analytics() {
   const [selectedPeriod, setSelectedPeriod] = useState('month');
   const [selectedTab, setSelectedTab] = useState('overview');
   const [isLoading, setIsLoading] = useState(true);
-  const [analyticsData, setAnalyticsData] = useState({
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [analyticsData, setAnalyticsData] = useState<AnalyticsData>({
     overview: {
       totalJobs: 0,
       activeJobs: 0,
@@ -28,6 +61,8 @@ export default function Analytics() {
       totalSpent: 0,
       totalApplications: 0,
       totalHires: 0,
+      completedHires: 0,
+      inProgressHires: 0,
       avgJobCompletion: 0,
     },
     applications: {
@@ -36,8 +71,10 @@ export default function Analytics() {
       shortlisted: 0,
       rejected: 0,
       pending: 0,
+      completed: 0,
+      inProgress: 0,
     },
-    monthlyStats: [] as any[],
+    monthlyStats: [],
   });
 
   useEffect(() => {
@@ -47,13 +84,23 @@ export default function Analytics() {
   const fetchAnalytics = async () => {
     try {
       setIsLoading(true);
+      setError(null);
       const data = await getEmployerAnalytics();
-      setAnalyticsData(data);
-    } catch (error) {
+      if (data) {
+        setAnalyticsData(data);
+      }
+    } catch (error: any) {
       console.error('Error fetching analytics:', error);
+      setError(error?.message || 'Failed to fetch analytics');
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const onRefresh = async () => {
+    setIsRefreshing(true);
+    await fetchAnalytics();
+    setIsRefreshing(false);
   };
 
   const periods = [
@@ -64,176 +111,241 @@ export default function Analytics() {
   ];
 
   const tabs = [
-    { key: 'overview', label: 'Overview', icon: 'bar-chart-outline' },
-    { key: 'jobs', label: 'Jobs', icon: 'document-text-outline' },
-    { key: 'spending', label: 'Spending', icon: 'cash-outline' },
-    { key: 'workers', label: 'Workers', icon: 'people-outline' },
+    { key: 'overview', label: 'Overview', icon: 'bar-chart' },
+    { key: 'jobs', label: 'Jobs', icon: 'briefcase' },
+    { key: 'spending', label: 'Spending', icon: 'cash' },
+    { key: 'workers', label: 'Workers', icon: 'people' },
   ];
 
-  const renderOverviewCard = (title: string, value: string, subtitle?: string, icon?: string, color = '#2563eb') => (
-    <View style={styles.overviewCard}>
+  const renderOverviewCard = (title: string, value: string, subtitle?: string, icon?: string, color = COLORS.employer.primary, bgColor = COLORS.employer.bg) => (
+    <View style={[styles.overviewCard, { borderLeftColor: color, borderLeftWidth: 3 }]}>
       <View style={styles.overviewHeader}>
-        <Text style={styles.overviewTitle}>{title}</Text>
-        {icon && <Icon name={icon} size={20} color={color} />}
+        <View style={[styles.overviewIconBg, { backgroundColor: bgColor }]}>
+          {icon && <Icon name={icon} size={18} color={color} />}
+        </View>
       </View>
-      <Text style={[styles.overviewValue, { color }]}>{value}</Text>
+      <Text style={styles.overviewValue}>{value}</Text>
+      <Text style={styles.overviewTitle}>{title}</Text>
       {subtitle && <Text style={styles.overviewSubtitle}>{subtitle}</Text>}
     </View>
   );
 
-  const renderActivityItem = (item: any) => (
-    <View key={item.id} style={styles.activityItem}>
-      <View style={styles.activityContent}>
-        <Text style={styles.activityAction}>{item.action}</Text>
-        <Text style={styles.activityDetail}>{item.detail}</Text>
-        <Text style={styles.activityTime}>{item.time}</Text>
+  const renderStatCard = (title: string, value: number, icon: string, color: string, bgColor: string) => (
+    <View style={styles.statCard}>
+      <View style={[styles.statIconBg, { backgroundColor: bgColor }]}>
+        <Icon name={icon} size={20} color={color} />
       </View>
-      {item.amount && (
-        <Text style={[
-          styles.activityAmount,
-          { color: item.amount.startsWith('+') ? '#16a34a' : '#ef4444' }
-        ]}>
-          {item.amount}
-        </Text>
-      )}
-    </View>
-  );
-
-  const renderCategoryItem = (item: any) => (
-    <View key={item.name} style={styles.categoryItem}>
-      <View style={styles.categoryHeader}>
-        <Text style={styles.categoryName}>{item.name}</Text>
-        <Text style={styles.categorySpent}>₹{item.spent?.toLocaleString() || 0}</Text>
-      </View>
-      <View style={styles.categoryMeta}>
-        <Text style={styles.categoryJobs}>{item.jobs} jobs</Text>
-        <Text style={styles.categoryPercentage}>{item.percentage}%</Text>
-      </View>
-      <View style={styles.progressBar}>
-        <View style={[styles.progressFill, { width: `${item.percentage}%` }]} />
-      </View>
+      <Text style={[styles.statCardValue, { color }]}>{value}</Text>
+      <Text style={styles.statCardLabel}>{title}</Text>
     </View>
   );
 
   const renderChart = () => {
     const maxSpent = analyticsData.monthlyStats.length > 0 
-      ? Math.max(...analyticsData.monthlyStats.map(s => s.spent)) 
-      : 0;
+      ? Math.max(...analyticsData.monthlyStats.map(s => s.spent), 1) 
+      : 1;
     
     return (
       <View style={styles.chart}>
-        <Text style={styles.chartTitle}>Monthly Spending Trend</Text>
+        <View style={styles.chartHeader}>
+          <Text style={styles.chartTitle}>Monthly Spending Trend</Text>
+          <Text style={styles.chartSubtitle}>Last 6 months</Text>
+        </View>
         <View style={styles.chartContainer}>
-          {analyticsData.monthlyStats.map((stat, index) => (
-            <View key={stat.month} style={styles.chartBar}>
-              <View 
-                style={[
-                  styles.chartBarFill,
-                  { height: (stat.spent / maxSpent) * 100 }
-                ]}
-              />
-              <Text style={styles.chartLabel}>{stat.month}</Text>
-              <Text style={styles.chartValue}>₹{(stat.spent / 1000).toFixed(1)}k</Text>
-            </View>
-          ))}
+          {analyticsData.monthlyStats.map((stat, index) => {
+            const heightPercent = maxSpent > 0 ? (stat.spent / maxSpent) * 100 : 0;
+            return (
+              <View key={`${stat.month}-${stat.year}`} style={styles.chartBar}>
+                <Text style={styles.chartValue}>₹{stat.spent > 1000 ? `${(stat.spent / 1000).toFixed(1)}k` : stat.spent}</Text>
+                <View style={styles.chartBarOuter}>
+                  <View 
+                    style={[
+                      styles.chartBarFill,
+                      { height: `${Math.max(heightPercent, 5)}%` }
+                    ]}
+                  />
+                </View>
+                <Text style={styles.chartLabel}>{stat.month}</Text>
+              </View>
+            );
+          })}
         </View>
       </View>
     );
   };
 
+  const renderJobsChart = () => {
+    const maxJobs = analyticsData.monthlyStats.length > 0 
+      ? Math.max(...analyticsData.monthlyStats.map(s => s.jobs), 1) 
+      : 1;
+    
+    return (
+      <View style={styles.chart}>
+        <View style={styles.chartHeader}>
+          <Text style={styles.chartTitle}>Jobs Posted</Text>
+          <Text style={styles.chartSubtitle}>Last 6 months</Text>
+        </View>
+        <View style={styles.chartContainer}>
+          {analyticsData.monthlyStats.map((stat, index) => {
+            const heightPercent = maxJobs > 0 ? (stat.jobs / maxJobs) * 100 : 0;
+            return (
+              <View key={`${stat.month}-${stat.year}`} style={styles.chartBar}>
+                <Text style={styles.chartValue}>{stat.jobs}</Text>
+                <View style={styles.chartBarOuter}>
+                  <View 
+                    style={[
+                      styles.chartBarFill,
+                      { height: `${Math.max(heightPercent, 5)}%`, backgroundColor: COLORS.worker.primary }
+                    ]}
+                  />
+                </View>
+                <Text style={styles.chartLabel}>{stat.month}</Text>
+              </View>
+            );
+          })}
+        </View>
+      </View>
+    );
+  };
+
+  if (isLoading) {
+    return (
+      <SafeAreaView style={styles.container} edges={['top']}>
+        <View style={styles.header}>
+          <Text style={styles.headerTitle}>Analytics</Text>
+          <View style={{ width: 24 }} />
+        </View>
+        <View style={styles.loadingContainer}>
+          <View style={styles.loadingIcon}>
+            <Icon name="bar-chart" size={32} color={COLORS.employer.primary} />
+          </View>
+          <ActivityIndicator size="large" color={COLORS.employer.primary} style={{ marginTop: SPACING.lg }} />
+          <Text style={styles.loadingText}>Loading analytics...</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  if (error) {
+    return (
+      <SafeAreaView style={styles.container} edges={['top']}>
+        <View style={styles.header}>
+          <Text style={styles.headerTitle}>Analytics</Text>
+          <View style={{ width: 24 }} />
+        </View>
+        <View style={styles.errorContainer}>
+          <View style={styles.errorIcon}>
+            <Icon name="alert-circle" size={48} color={COLORS.status.error} />
+          </View>
+          <Text style={styles.errorTitle}>Failed to load analytics</Text>
+          <Text style={styles.errorText}>{error}</Text>
+          <TouchableOpacity style={styles.retryBtn} onPress={fetchAnalytics}>
+            <Icon name="refresh" size={18} color={COLORS.white} />
+            <Text style={styles.retryBtnText}>Try Again</Text>
+          </TouchableOpacity>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()}>
-          <Icon name="arrow-back" size={24} color="#1f2937" />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>Analytics</Text>
-        <TouchableOpacity>
-          <Icon name="document-outline" size={24} color={COLORS.employer.primary} />
+        <View>
+          <Text style={styles.headerTitle}>Analytics</Text>
+          <Text style={styles.headerSubtitle}>Your hiring insights</Text>
+        </View>
+        <TouchableOpacity style={styles.refreshBtn} onPress={fetchAnalytics}>
+          <Icon name="refresh" size={20} color={COLORS.employer.primary} />
         </TouchableOpacity>
       </View>
 
-      {/* Period Selector */}
-      <View style={styles.periodSelector}>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-          {periods.map((period) => (
+      {/* Tab Navigation */}
+      <View style={styles.tabContainer}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tabScroll}>
+          {tabs.map((tab) => (
             <TouchableOpacity
-              key={period.key}
-              style={[
-                styles.periodButton,
-                selectedPeriod === period.key && styles.activePeriodButton
-              ]}
-              onPress={() => setSelectedPeriod(period.key)}
+              key={tab.key}
+              style={[styles.tab, selectedTab === tab.key && styles.activeTab]}
+              onPress={() => setSelectedTab(tab.key)}
             >
-              <Text style={[
-                styles.periodButtonText,
-                selectedPeriod === period.key && styles.activePeriodButtonText
-              ]}>
-                {period.label}
+              <Icon 
+                name={tab.icon} 
+                size={18} 
+                color={selectedTab === tab.key ? COLORS.white : COLORS.gray[500]} 
+              />
+              <Text style={[styles.tabText, selectedTab === tab.key && styles.activeTabText]}>
+                {tab.label}
               </Text>
             </TouchableOpacity>
           ))}
         </ScrollView>
       </View>
 
-      {/* Tab Navigation */}
-      <View style={styles.tabContainer}>
-        {tabs.map((tab) => (
-          <TouchableOpacity
-            key={tab.key}
-            style={[
-              styles.tab,
-              selectedTab === tab.key && styles.activeTab
-            ]}
-            onPress={() => setSelectedTab(tab.key)}
-          >
-            <Icon 
-              name={tab.icon} 
-              size={20} 
-              color={selectedTab === tab.key ? COLORS.employer.primary : '#6b7280'} 
-            />
-            <Text style={[
-              styles.tabText,
-              selectedTab === tab.key && styles.activeTabText
-            ]}>
-              {tab.label}
-            </Text>
-          </TouchableOpacity>
-        ))}
-      </View>
-
-      <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
+      <ScrollView 
+        style={styles.content} 
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={isRefreshing}
+            onRefresh={onRefresh}
+            colors={[COLORS.employer.primary]}
+            tintColor={COLORS.employer.primary}
+          />
+        }
+      >
         {selectedTab === 'overview' && (
           <>
-            {/* Overview Cards */}
+            {/* Key Metrics */}
+            <View style={styles.sectionHeader}>
+              <Text style={styles.sectionTitle}>Key Metrics</Text>
+            </View>
             <View style={styles.overviewGrid}>
-              {renderOverviewCard('Total Jobs', analyticsData.overview.totalJobs.toString(), 'All time', 'document-text-outline')}
-              {renderOverviewCard('Active Jobs', analyticsData.overview.activeJobs.toString(), 'Currently hiring', 'pulse-outline', COLORS.status.success)}
-              {renderOverviewCard('Completed', analyticsData.overview.completedJobs.toString(), 'Successfully done', 'checkmark-done-outline', COLORS.employer.primary)}
-              {renderOverviewCard('Total Spent', `₹${analyticsData.overview.totalSpent.toLocaleString()}`, 'All time', 'cash-outline', COLORS.status.warning)}
+              {renderOverviewCard(
+                'Total Jobs', 
+                analyticsData.overview.totalJobs.toString(), 
+                'All time posted',
+                'briefcase',
+                COLORS.employer.primary,
+                COLORS.employer.bg
+              )}
+              {renderOverviewCard(
+                'Active Jobs', 
+                analyticsData.overview.activeJobs.toString(), 
+                'Currently hiring',
+                'flash',
+                COLORS.worker.primary,
+                COLORS.worker.bg
+              )}
+              {renderOverviewCard(
+                'Completed', 
+                analyticsData.overview.completedJobs.toString(), 
+                `${analyticsData.overview.avgJobCompletion}% completion`,
+                'checkmark',
+                COLORS.system.primary,
+                COLORS.system.bg
+              )}
+              {renderOverviewCard(
+                'Total Spent', 
+                `₹${analyticsData.overview.totalSpent.toLocaleString()}`, 
+                'On all jobs',
+                'cash',
+                COLORS.status.warning,
+                '#fef3c7'
+              )}
             </View>
 
-            {/* Applications Stats */}
-            <View style={styles.quickStats}>
-              <Text style={styles.sectionTitle}>Applications</Text>
-              <View style={styles.statsGrid}>
-                <View style={styles.statItem}>
-                  <Text style={styles.statValue}>{analyticsData.applications.total}</Text>
-                  <Text style={styles.statLabel}>Total</Text>
-                </View>
-                <View style={styles.statItem}>
-                  <Text style={[styles.statValue, { color: COLORS.status.success }]}>{analyticsData.applications.accepted}</Text>
-                  <Text style={styles.statLabel}>Accepted</Text>
-                </View>
-                <View style={styles.statItem}>
-                  <Text style={[styles.statValue, { color: COLORS.status.warning }]}>{analyticsData.applications.shortlisted}</Text>
-                  <Text style={styles.statLabel}>Shortlisted</Text>
-                </View>
-                <View style={styles.statItem}>
-                  <Text style={[styles.statValue, { color: '#6b7280' }]}>{analyticsData.applications.pending}</Text>
-                  <Text style={styles.statLabel}>Pending</Text>
-                </View>
+            {/* Application Breakdown */}
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>Application Breakdown</Text>
+              <View style={styles.applicationGrid}>
+                {renderStatCard('Total', analyticsData.applications.total, 'folder', COLORS.gray[600], COLORS.gray[100])}
+                {renderStatCard('Pending', analyticsData.applications.pending, 'time', COLORS.status.warning, '#fef3c7')}
+                {renderStatCard('Shortlisted', analyticsData.applications.shortlisted, 'star', COLORS.status.info, '#dbeafe')}
+                {renderStatCard('Accepted', analyticsData.applications.accepted, 'checkmark', COLORS.worker.primary, COLORS.worker.bg)}
+                {renderStatCard('In Progress', analyticsData.applications.inProgress, 'flash', COLORS.employer.primary, COLORS.employer.bg)}
+                {renderStatCard('Completed', analyticsData.applications.completed, 'checkmark-done', COLORS.system.primary, COLORS.system.bg)}
               </View>
             </View>
 
@@ -244,70 +356,202 @@ export default function Analytics() {
 
         {selectedTab === 'jobs' && (
           <>
-            {/* Jobs Overview */}
-            <View style={styles.section}>
-              <Text style={styles.sectionTitle}>Jobs Overview</Text>
-              <Text style={styles.emptyText}>Job breakdown by category will appear here when you have active jobs.</Text>
+            {/* Jobs Summary */}
+            <View style={styles.sectionHeader}>
+              <Text style={styles.sectionTitle}>Jobs Summary</Text>
+            </View>
+            <View style={styles.overviewGrid}>
+              {renderOverviewCard(
+                'Total Posted', 
+                analyticsData.overview.totalJobs.toString(), 
+                'All time',
+                'document',
+                COLORS.employer.primary,
+                COLORS.employer.bg
+              )}
+              {renderOverviewCard(
+                'Active Now', 
+                analyticsData.overview.activeJobs.toString(), 
+                'Accepting applications',
+                'flash',
+                COLORS.worker.primary,
+                COLORS.worker.bg
+              )}
+              {renderOverviewCard(
+                'Completed', 
+                analyticsData.overview.completedJobs.toString(), 
+                'Successfully done',
+                'checkmark-done',
+                COLORS.system.primary,
+                COLORS.system.bg
+              )}
+              {renderOverviewCard(
+                'Completion Rate', 
+                `${analyticsData.overview.avgJobCompletion}%`, 
+                'Of all jobs',
+                'analytics',
+                COLORS.status.info,
+                '#dbeafe'
+              )}
             </View>
 
-            {/* Monthly Chart */}
-            {analyticsData.monthlyStats.length > 0 && renderChart()}
+            {/* Jobs per Month Chart */}
+            {analyticsData.monthlyStats.length > 0 && renderJobsChart()}
+
+            {/* Monthly Breakdown */}
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>Monthly Breakdown</Text>
+              {analyticsData.monthlyStats.length > 0 ? (
+                analyticsData.monthlyStats.map((stat, index) => (
+                  <View key={`${stat.month}-${stat.year}`} style={styles.monthRow}>
+                    <View style={styles.monthInfo}>
+                      <Text style={styles.monthName}>{stat.month} {stat.year}</Text>
+                    </View>
+                    <View style={styles.monthStats}>
+                      <View style={styles.monthStat}>
+                        <Text style={styles.monthStatValue}>{stat.jobs}</Text>
+                        <Text style={styles.monthStatLabel}>Posted</Text>
+                      </View>
+                      <View style={styles.monthStat}>
+                        <Text style={[styles.monthStatValue, { color: COLORS.worker.primary }]}>{stat.completed}</Text>
+                        <Text style={styles.monthStatLabel}>Done</Text>
+                      </View>
+                      <View style={styles.monthStat}>
+                        <Text style={[styles.monthStatValue, { color: COLORS.employer.primary }]}>₹{stat.spent.toLocaleString()}</Text>
+                        <Text style={styles.monthStatLabel}>Spent</Text>
+                      </View>
+                    </View>
+                  </View>
+                ))
+              ) : (
+                <Text style={styles.emptyText}>No monthly data available yet</Text>
+              )}
+            </View>
           </>
         )}
 
         {selectedTab === 'spending' && (
           <>
-            {/* Spending Overview - Only show if there's real data */}
-            {analyticsData.overview.totalSpent > 0 ? (
-              <View style={styles.overviewGrid}>
-                {renderOverviewCard(
-                  'Total Spent',
-                  `₹${analyticsData.overview.totalSpent.toLocaleString()}`,
-                  'All completed jobs',
-                  'cash-outline',
-                  COLORS.employer.primary
-                )}
-                {analyticsData.overview.completedJobs > 0 && renderOverviewCard(
-                  'Average per Job',
-                  `₹${Math.round(analyticsData.overview.totalSpent / analyticsData.overview.completedJobs).toLocaleString()}`,
-                  'Based on completed jobs',
-                  'calculator-outline',
-                  COLORS.employer.primary
-                )}
-              </View>
-            ) : (
-              <View style={styles.section}>
-                <Text style={styles.emptyText}>Spending data will appear after jobs are completed and workers are paid.</Text>
-              </View>
-            )}
+            {/* Spending Overview */}
+            <View style={styles.sectionHeader}>
+              <Text style={styles.sectionTitle}>Spending Overview</Text>
+            </View>
+            <View style={styles.overviewGrid}>
+              {renderOverviewCard(
+                'Total Spent',
+                `₹${analyticsData.overview.totalSpent.toLocaleString()}`,
+                'All time spending',
+                'cash',
+                COLORS.employer.primary,
+                COLORS.employer.bg
+              )}
+              {renderOverviewCard(
+                'Avg per Job',
+                analyticsData.overview.completedJobs > 0 
+                  ? `₹${Math.round(analyticsData.overview.totalSpent / analyticsData.overview.completedJobs).toLocaleString()}`
+                  : '₹0',
+                'Per completed job',
+                'wallet',
+                COLORS.status.info,
+                '#dbeafe'
+              )}
+            </View>
 
-            {/* Chart */}
+            {/* Spending Chart */}
             {analyticsData.monthlyStats.length > 0 && renderChart()}
+
+            {/* Monthly Spending */}
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>Monthly Spending</Text>
+              {analyticsData.monthlyStats.length > 0 ? (
+                analyticsData.monthlyStats.map((stat, index) => (
+                  <View key={`${stat.month}-${stat.year}`} style={styles.spendingRow}>
+                    <View style={styles.spendingInfo}>
+                      <Text style={styles.spendingMonth}>{stat.month} {stat.year}</Text>
+                      <Text style={styles.spendingJobs}>{stat.jobs} jobs posted</Text>
+                    </View>
+                    <Text style={styles.spendingAmount}>₹{stat.spent.toLocaleString()}</Text>
+                  </View>
+                ))
+              ) : (
+                <Text style={styles.emptyText}>No spending data available yet</Text>
+              )}
+            </View>
           </>
         )}
 
         {selectedTab === 'workers' && (
           <>
+            {/* Workers Summary */}
+            <View style={styles.sectionHeader}>
+              <Text style={styles.sectionTitle}>Worker Statistics</Text>
+            </View>
             <View style={styles.overviewGrid}>
               {renderOverviewCard(
                 'Total Hired',
                 analyticsData.applications.accepted.toString(),
-                'Workers hired',
-                'people-outline',
-                COLORS.employer.primary
+                'Workers accepted',
+                'people',
+                COLORS.employer.primary,
+                COLORS.employer.bg
               )}
               {renderOverviewCard(
-                'Jobs Completed',
+                'In Progress',
+                analyticsData.applications.inProgress.toString(),
+                'Currently working',
+                'time',
+                COLORS.status.warning,
+                '#fef3c7'
+              )}
+              {renderOverviewCard(
+                'Completed',
                 analyticsData.applications.completed.toString(),
-                'Successfully finished',
-                'checkmark-done-circle-outline',
-                COLORS.status.success
+                'Jobs finished',
+                'checkmark-done',
+                COLORS.worker.primary,
+                COLORS.worker.bg
+              )}
+              {renderOverviewCard(
+                'Completion Rate',
+                analyticsData.applications.accepted > 0 
+                  ? `${Math.round((analyticsData.applications.completed / analyticsData.applications.accepted) * 100)}%`
+                  : '0%',
+                'Of hired workers',
+                'trending-up',
+                COLORS.system.primary,
+                COLORS.system.bg
               )}
             </View>
 
+            {/* Hiring Funnel */}
             <View style={styles.section}>
-              <Text style={styles.sectionTitle}>Worker Statistics</Text>
-              <Text style={styles.emptyText}>Worker performance data will be available after completing jobs.</Text>
+              <Text style={styles.sectionTitle}>Hiring Funnel</Text>
+              <View style={styles.funnelContainer}>
+                <View style={styles.funnelItem}>
+                  <View style={[styles.funnelBar, { backgroundColor: COLORS.gray[200], width: '100%' }]}>
+                    <Text style={styles.funnelValue}>{analyticsData.applications.total}</Text>
+                  </View>
+                  <Text style={styles.funnelLabel}>Applications</Text>
+                </View>
+                <View style={styles.funnelItem}>
+                  <View style={[styles.funnelBar, { backgroundColor: '#fef3c7', width: `${analyticsData.applications.total > 0 ? Math.max((analyticsData.applications.shortlisted / analyticsData.applications.total) * 100, 20) : 20}%` }]}>
+                    <Text style={styles.funnelValue}>{analyticsData.applications.shortlisted}</Text>
+                  </View>
+                  <Text style={styles.funnelLabel}>Shortlisted</Text>
+                </View>
+                <View style={styles.funnelItem}>
+                  <View style={[styles.funnelBar, { backgroundColor: COLORS.worker.bg, width: `${analyticsData.applications.total > 0 ? Math.max((analyticsData.applications.accepted / analyticsData.applications.total) * 100, 15) : 15}%` }]}>
+                    <Text style={styles.funnelValue}>{analyticsData.applications.accepted}</Text>
+                  </View>
+                  <Text style={styles.funnelLabel}>Hired</Text>
+                </View>
+                <View style={styles.funnelItem}>
+                  <View style={[styles.funnelBar, { backgroundColor: COLORS.system.bg, width: `${analyticsData.applications.total > 0 ? Math.max((analyticsData.applications.completed / analyticsData.applications.total) * 100, 10) : 10}%` }]}>
+                    <Text style={styles.funnelValue}>{analyticsData.applications.completed}</Text>
+                  </View>
+                  <Text style={styles.funnelLabel}>Completed</Text>
+                </View>
+              </View>
             </View>
           </>
         )}
@@ -321,321 +565,378 @@ export default function Analytics() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f8fafc',
+    backgroundColor: COLORS.gray[50],
   },
+  
+  // Loading & Error States
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingIcon: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    backgroundColor: COLORS.employer.bg,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingText: {
+    marginTop: SPACING.md,
+    fontSize: TYPOGRAPHY.sizes.sm,
+    color: COLORS.gray[500],
+  },
+  errorContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: SPACING.xl,
+  },
+  errorIcon: {
+    marginBottom: SPACING.lg,
+  },
+  errorTitle: {
+    fontSize: TYPOGRAPHY.sizes.lg,
+    fontWeight: TYPOGRAPHY.weights.semibold,
+    color: COLORS.gray[900],
+    marginBottom: SPACING.sm,
+  },
+  errorText: {
+    fontSize: TYPOGRAPHY.sizes.sm,
+    color: COLORS.gray[500],
+    textAlign: 'center',
+    marginBottom: SPACING.xl,
+  },
+  retryBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: COLORS.employer.primary,
+    paddingHorizontal: SPACING.xl,
+    paddingVertical: SPACING.md,
+    borderRadius: RADIUS.md,
+    gap: SPACING.sm,
+  },
+  retryBtnText: {
+    fontSize: TYPOGRAPHY.sizes.sm,
+    fontWeight: TYPOGRAPHY.weights.semibold,
+    color: COLORS.white,
+  },
+
+  // Header
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingVertical: 16,
-    backgroundColor: 'white',
-    borderBottomWidth: 1,
-    borderBottomColor: '#e5e7eb',
+    paddingHorizontal: SPACING.xl,
+    paddingVertical: SPACING.lg,
+    backgroundColor: COLORS.white,
+    ...SHADOWS.sm,
   },
   headerTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#1f2937',
+    fontSize: TYPOGRAPHY.sizes.xl,
+    fontWeight: TYPOGRAPHY.weights.bold,
+    color: COLORS.gray[900],
   },
-  periodSelector: {
-    backgroundColor: 'white',
-    paddingHorizontal: 20,
-    paddingVertical: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#e5e7eb',
+  headerSubtitle: {
+    fontSize: TYPOGRAPHY.sizes.sm,
+    color: COLORS.gray[500],
+    marginTop: 2,
   },
-  periodButton: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    marginRight: 12,
-    borderRadius: 20,
-    backgroundColor: '#f3f4f6',
+  refreshBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: RADIUS.md,
+    backgroundColor: COLORS.employer.bg,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
-  activePeriodButton: {
-    backgroundColor: COLORS.employer.primary,
-  },
-  periodButtonText: {
-    fontSize: 14,
-    fontWeight: '500',
-    color: '#6b7280',
-  },
-  activePeriodButtonText: {
-    color: 'white',
-  },
+
+  // Tabs
   tabContainer: {
-    flexDirection: 'row',
-    backgroundColor: 'white',
-    paddingHorizontal: 20,
-    paddingBottom: 16,
+    backgroundColor: COLORS.white,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.gray[100],
+  },
+  tabScroll: {
+    paddingHorizontal: SPACING.lg,
+    paddingVertical: SPACING.sm,
+    gap: SPACING.sm,
   },
   tab: {
-    flex: 1,
-    flexDirection: 'column',
+    flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 12,
-    borderBottomWidth: 2,
-    borderBottomColor: 'transparent',
+    paddingHorizontal: SPACING.lg,
+    paddingVertical: SPACING.sm,
+    borderRadius: RADIUS.full,
+    backgroundColor: COLORS.gray[100],
+    marginRight: SPACING.sm,
+    gap: 6,
   },
   activeTab: {
-    borderBottomColor: COLORS.employer.primary,
+    backgroundColor: COLORS.employer.primary,
   },
   tabText: {
-    fontSize: 12,
-    fontWeight: '500',
-    color: '#6b7280',
-    marginTop: 4,
+    fontSize: TYPOGRAPHY.sizes.sm,
+    fontWeight: TYPOGRAPHY.weights.medium,
+    color: COLORS.gray[600],
   },
   activeTabText: {
-    color: COLORS.employer.primary,
+    color: COLORS.white,
   },
+
+  // Content
   content: {
     flex: 1,
-    paddingHorizontal: 20,
+    paddingHorizontal: SPACING.lg,
   },
+  sectionHeader: {
+    marginTop: SPACING.lg,
+    marginBottom: SPACING.sm,
+  },
+  sectionTitle: {
+    fontSize: TYPOGRAPHY.sizes.base,
+    fontWeight: TYPOGRAPHY.weights.bold,
+    color: COLORS.gray[900],
+  },
+
+  // Overview Grid
   overviewGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 12,
-    marginTop: 16,
-    marginBottom: 24,
+    gap: SPACING.sm,
+    marginBottom: SPACING.lg,
   },
   overviewCard: {
-    backgroundColor: 'white',
-    borderRadius: 12,
-    padding: 16,
-    width: (width - 52) / 2,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 3,
-    elevation: 2,
+    backgroundColor: COLORS.white,
+    borderRadius: RADIUS.lg,
+    padding: SPACING.md,
+    width: (width - SPACING.lg * 2 - SPACING.sm) / 2,
+    ...SHADOWS.sm,
   },
   overviewHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 8,
+    marginBottom: SPACING.sm,
   },
-  overviewTitle: {
-    fontSize: 14,
-    color: '#6b7280',
-    fontWeight: '500',
+  overviewIconBg: {
+    width: 36,
+    height: 36,
+    borderRadius: RADIUS.md,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   overviewValue: {
-    fontSize: 24,
-    fontWeight: '700',
-    marginBottom: 4,
+    fontSize: TYPOGRAPHY.sizes.xl,
+    fontWeight: TYPOGRAPHY.weights.bold,
+    color: COLORS.gray[900],
+    marginBottom: 2,
+  },
+  overviewTitle: {
+    fontSize: TYPOGRAPHY.sizes.sm,
+    fontWeight: TYPOGRAPHY.weights.medium,
+    color: COLORS.gray[700],
   },
   overviewSubtitle: {
-    fontSize: 12,
-    color: '#9ca3af',
+    fontSize: TYPOGRAPHY.sizes.xs,
+    color: COLORS.gray[400],
+    marginTop: 2,
   },
-  quickStats: {
-    backgroundColor: 'white',
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 24,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 3,
-    elevation: 2,
-  },
-  statsGrid: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    marginTop: 16,
-  },
-  statItem: {
-    alignItems: 'center',
-  },
-  statValue: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: '#1f2937',
-    marginBottom: 4,
-  },
-  statLabel: {
-    fontSize: 12,
-    color: '#6b7280',
-    textAlign: 'center',
-  },
+
+  // Section
   section: {
-    backgroundColor: 'white',
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 3,
-    elevation: 2,
+    backgroundColor: COLORS.white,
+    borderRadius: RADIUS.lg,
+    padding: SPACING.lg,
+    marginBottom: SPACING.lg,
+    ...SHADOWS.sm,
   },
-  sectionHeader: {
+
+  // Application Grid
+  applicationGrid: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
+    flexWrap: 'wrap',
+    gap: SPACING.sm,
+    marginTop: SPACING.md,
+  },
+  statCard: {
+    backgroundColor: COLORS.gray[50],
+    borderRadius: RADIUS.md,
+    padding: SPACING.md,
+    width: (width - SPACING.lg * 4 - SPACING.sm * 2) / 3,
     alignItems: 'center',
-    marginBottom: 16,
   },
-  sectionTitle: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#1f2937',
-  },
-  viewAll: {
-    fontSize: 14,
-    color: COLORS.employer.primary,
-    fontWeight: '500',
-  },
-  activityItem: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+  statIconBg: {
+    width: 32,
+    height: 32,
+    borderRadius: RADIUS.sm,
+    justifyContent: 'center',
     alignItems: 'center',
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f3f4f6',
+    marginBottom: SPACING.xs,
   },
-  activityContent: {
-    flex: 1,
+  statCardValue: {
+    fontSize: TYPOGRAPHY.sizes.lg,
+    fontWeight: TYPOGRAPHY.weights.bold,
+    color: COLORS.gray[900],
   },
-  activityAction: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#374151',
-    marginBottom: 2,
+  statCardLabel: {
+    fontSize: 10,
+    color: COLORS.gray[500],
+    textAlign: 'center',
+    marginTop: 2,
   },
-  activityDetail: {
-    fontSize: 12,
-    color: '#6b7280',
-    marginBottom: 2,
-  },
-  activityTime: {
-    fontSize: 12,
-    color: '#9ca3af',
-  },
-  activityAmount: {
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  categoryItem: {
-    paddingVertical: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f3f4f6',
-  },
-  categoryHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 4,
-  },
-  categoryName: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#374151',
-  },
-  categorySpent: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: COLORS.status.success,
-  },
-  categoryMeta: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  categoryJobs: {
-    fontSize: 12,
-    color: '#6b7280',
-  },
-  categoryPercentage: {
-    fontSize: 12,
-    color: COLORS.employer.primary,
-    fontWeight: '600',
-  },
-  progressBar: {
-    height: 4,
-    backgroundColor: '#e5e7eb',
-    borderRadius: 2,
-  },
-  progressFill: {
-    height: '100%',
-    backgroundColor: COLORS.employer.primary,
-    borderRadius: 2,
-  },
+
+  // Chart
   chart: {
-    backgroundColor: 'white',
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 3,
-    elevation: 2,
+    backgroundColor: COLORS.white,
+    borderRadius: RADIUS.lg,
+    padding: SPACING.lg,
+    marginBottom: SPACING.lg,
+    ...SHADOWS.sm,
+  },
+  chartHeader: {
+    marginBottom: SPACING.lg,
   },
   chartTitle: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#1f2937',
-    marginBottom: 16,
+    fontSize: TYPOGRAPHY.sizes.base,
+    fontWeight: TYPOGRAPHY.weights.bold,
+    color: COLORS.gray[900],
+  },
+  chartSubtitle: {
+    fontSize: TYPOGRAPHY.sizes.xs,
+    color: COLORS.gray[400],
+    marginTop: 2,
   },
   chartContainer: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-end',
-    height: 120,
+    height: 140,
+    paddingTop: SPACING.lg,
   },
   chartBar: {
     alignItems: 'center',
     flex: 1,
   },
+  chartBarOuter: {
+    width: 24,
+    height: 100,
+    backgroundColor: COLORS.gray[100],
+    borderRadius: RADIUS.sm,
+    justifyContent: 'flex-end',
+    overflow: 'hidden',
+  },
   chartBarFill: {
-    width: 20,
+    width: '100%',
     backgroundColor: COLORS.employer.primary,
-    borderRadius: 2,
-    marginBottom: 8,
+    borderRadius: RADIUS.sm,
   },
   chartLabel: {
-    fontSize: 12,
-    color: '#6b7280',
-    marginBottom: 2,
+    fontSize: 10,
+    color: COLORS.gray[500],
+    marginTop: SPACING.xs,
+    fontWeight: TYPOGRAPHY.weights.medium,
   },
   chartValue: {
-    fontSize: 10,
-    color: '#9ca3af',
-  },
-  workerItem: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f3f4f6',
-  },
-  workerInfo: {
-    flex: 1,
-  },
-  workerName: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#374151',
+    fontSize: 9,
+    color: COLORS.gray[600],
+    fontWeight: TYPOGRAPHY.weights.semibold,
     marginBottom: 4,
   },
-  workerStats: {
-    fontSize: 12,
-    color: '#6b7280',
+
+  // Month Row
+  monthRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: SPACING.md,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.gray[100],
   },
-  workerRating: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: COLORS.status.warning,
+  monthInfo: {
+    flex: 1,
   },
-  emptyText: {
-    fontSize: 14,
+  monthName: {
+    fontSize: TYPOGRAPHY.sizes.sm,
+    fontWeight: TYPOGRAPHY.weights.semibold,
+    color: COLORS.gray[900],
+  },
+  monthStats: {
+    flexDirection: 'row',
+    gap: SPACING.lg,
+  },
+  monthStat: {
+    alignItems: 'center',
+  },
+  monthStatValue: {
+    fontSize: TYPOGRAPHY.sizes.sm,
+    fontWeight: TYPOGRAPHY.weights.bold,
+    color: COLORS.gray[900],
+  },
+  monthStatLabel: {
+    fontSize: 10,
+    color: COLORS.gray[400],
+  },
+
+  // Spending Row
+  spendingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: SPACING.md,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.gray[100],
+  },
+  spendingInfo: {
+    flex: 1,
+  },
+  spendingMonth: {
+    fontSize: TYPOGRAPHY.sizes.sm,
+    fontWeight: TYPOGRAPHY.weights.semibold,
+    color: COLORS.gray[900],
+  },
+  spendingJobs: {
+    fontSize: TYPOGRAPHY.sizes.xs,
+    color: COLORS.gray[400],
+    marginTop: 2,
+  },
+  spendingAmount: {
+    fontSize: TYPOGRAPHY.sizes.base,
+    fontWeight: TYPOGRAPHY.weights.bold,
+    color: COLORS.employer.primary,
+  },
+
+  // Funnel
+  funnelContainer: {
+    marginTop: SPACING.md,
+    gap: SPACING.sm,
+  },
+  funnelItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACING.md,
+  },
+  funnelBar: {
+    height: 36,
+    borderRadius: RADIUS.sm,
+    justifyContent: 'center',
+    paddingHorizontal: SPACING.md,
+    minWidth: 50,
+  },
+  funnelValue: {
+    fontSize: TYPOGRAPHY.sizes.sm,
+    fontWeight: TYPOGRAPHY.weights.bold,
+    color: COLORS.gray[800],
+  },
+  funnelLabel: {
+    fontSize: TYPOGRAPHY.sizes.xs,
     color: COLORS.gray[500],
+    width: 70,
+  },
+
+  // Empty
+  emptyText: {
+    fontSize: TYPOGRAPHY.sizes.sm,
+    color: COLORS.gray[400],
     textAlign: 'center',
-    paddingVertical: 20,
+    paddingVertical: SPACING.xl,
   },
 });

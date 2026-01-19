@@ -161,3 +161,32 @@ export const isAuthenticated = async () => {
   const token = await getToken();
   return !!token;
 };
+
+// Change Password
+export const changePassword = async (currentPassword: string, newPassword: string) => {
+  const token = await getToken();
+  const userType = await getUserType();
+  
+  if (!token) {
+    throw new Error('No authentication token found');
+  }
+  
+  const endpoint = userType === 'employer' ? 'employer' : 'employee';
+  
+  const response = await fetch(`${API_BASE_URL}/${endpoint}/change-password`, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${token}`,
+    },
+    body: JSON.stringify({ currentPassword, newPassword }),
+  });
+
+  const data = await response.json();
+  
+  if (!response.ok) {
+    throw new Error(data.error || data.message || 'Failed to change password');
+  }
+  
+  return data;
+};

@@ -24,8 +24,21 @@ const jobCategories = [
   { id: 'cleaning', name: 'Cleaning', icon: 'sparkles' },
   { id: 'plumbing', name: 'Plumbing', icon: 'water' },
   { id: 'electrical', name: 'Electrical', icon: 'flash' },
-  { id: 'carpentry', name: 'Carpentry', icon: 'hammer' },
+  { id: 'carpentry', name: 'Carpentry', icon: 'construct' },
   { id: 'gardening', name: 'Gardening', icon: 'leaf' },
+  { id: 'helper', name: 'Helper', icon: 'people' },
+  { id: 'driver', name: 'Driver', icon: 'car' },
+  { id: 'moving', name: 'Moving', icon: 'cube' },
+  { id: 'cooking', name: 'Cooking', icon: 'restaurant' },
+  { id: 'delivery', name: 'Delivery', icon: 'bicycle' },
+  { id: 'security', name: 'Security', icon: 'shield' },
+  { id: 'tutoring', name: 'Tutoring', icon: 'book' },
+  { id: 'childcare', name: 'Childcare', icon: 'happy' },
+  { id: 'eldercare', name: 'Elder Care', icon: 'heart' },
+  { id: 'petcare', name: 'Pet Care', icon: 'paw' },
+  { id: 'laundry', name: 'Laundry', icon: 'shirt' },
+  { id: 'repair', name: 'Repair', icon: 'hammer' },
+  { id: 'other', name: 'Other', icon: 'ellipsis-horizontal' },
 ];
 
 const urgencyOptions = [
@@ -39,6 +52,7 @@ export default function PostJobScreen() {
   const [currentStep, setCurrentStep] = useState(1);
   const totalSteps = 5;
   const [isGettingLocation, setIsGettingLocation] = useState(false);
+  const [showAllCategories, setShowAllCategories] = useState(false);
 
   // Form state
   const [formData, setFormData] = useState({
@@ -259,14 +273,18 @@ export default function PostJobScreen() {
     </View>
   );
 
-  const renderStep1 = () => (
+  const renderStep1 = () => {
+    // Show first 6 categories or all if showAllCategories is true
+    const visibleCategories = showAllCategories ? jobCategories : jobCategories.slice(0, 6);
+    
+    return (
     <View style={styles.stepContent}>
       <Text style={styles.stepTitle}>What job do you need help with?</Text>
       <Text style={styles.stepSubtitle}>Select a category and add a title</Text>
 
       {/* Categories */}
       <View style={styles.categoriesGrid}>
-        {jobCategories.map((category) => (
+        {visibleCategories.map((category) => (
           <TouchableOpacity
             key={category.id}
             style={[
@@ -290,6 +308,21 @@ export default function PostJobScreen() {
         ))}
       </View>
 
+      {/* Show More/Less Button */}
+      <TouchableOpacity 
+        style={styles.showMoreButton}
+        onPress={() => setShowAllCategories(!showAllCategories)}
+      >
+        <Text style={styles.showMoreText}>
+          {showAllCategories ? 'Show Less' : `Show More (${jobCategories.length - 6} more)`}
+        </Text>
+        <Ionicons 
+          name={showAllCategories ? 'chevron-up' : 'chevron-down'} 
+          size={18} 
+          color={COLORS.employer.primary} 
+        />
+      </TouchableOpacity>
+
       {/* Job Title */}
       <View style={styles.inputGroup}>
         <Text style={styles.label}>Job Title *</Text>
@@ -303,6 +336,7 @@ export default function PostJobScreen() {
       </View>
     </View>
   );
+  };
 
   const renderStep2 = () => (
     <View style={styles.stepContent}>
@@ -750,6 +784,19 @@ const styles = StyleSheet.create({
   categoryNameSelected: {
     color: COLORS.employer.primary,
     fontWeight: TYPOGRAPHY.weights.semibold,
+  },
+  showMoreButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: SPACING.md,
+    marginBottom: SPACING.xl,
+    gap: SPACING.xs,
+  },
+  showMoreText: {
+    fontSize: TYPOGRAPHY.sizes.sm,
+    fontWeight: TYPOGRAPHY.weights.medium,
+    color: COLORS.employer.primary,
   },
   inputGroup: {
     marginBottom: SPACING.xl,

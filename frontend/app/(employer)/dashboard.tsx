@@ -177,7 +177,13 @@ export default function EmployerDashboard() {
         {/* Primary Action */}
         <TouchableOpacity
           style={[styles.primaryButton, { backgroundColor: statusConfig.color }]}
-          onPress={() => router.push('/(employer)/jobs')}
+          onPress={() => {
+            if (item.status === 'searching') {
+              router.push(`/(employer)/candidates?jobId=${item.id}`);
+            } else {
+              router.push('/(employer)/jobs');
+            }
+          }}
         >
           <Text style={styles.primaryButtonText}>
             {item.status === 'searching' ? 'View Candidates' : 'Track Worker'}
@@ -249,18 +255,24 @@ export default function EmployerDashboard() {
             <Text style={styles.actionText}>Post New Job</Text>
           </TouchableOpacity>
 
-          <TouchableOpacity style={styles.actionButton}>
+          <TouchableOpacity 
+            style={styles.actionButton}
+            onPress={() => router.push('/(employer)/candidates')}
+          >
             <View style={[styles.actionIcon, { backgroundColor: COLORS.worker.bg }]}>
               <Ionicons name="people" size={28} color={COLORS.worker.primary} />
             </View>
             <Text style={styles.actionText}>View Candidates</Text>
           </TouchableOpacity>
 
-          <TouchableOpacity style={styles.actionButton}>
-            <View style={[styles.actionIcon, { backgroundColor: COLORS.employer.light }]}>
-              <Ionicons name="star" size={28} color={COLORS.status.warning} />
+          <TouchableOpacity 
+            style={styles.actionButton}
+            onPress={() => router.push('/(employer)/fast-hire')}
+          >
+            <View style={[styles.actionIcon, { backgroundColor: '#fef3c7' }]}>
+              <Ionicons name="search" size={28} color={COLORS.status.warning} />
             </View>
-            <Text style={styles.actionText}>Rate Workers</Text>
+            <Text style={styles.actionText}>Find Workers</Text>
           </TouchableOpacity>
 
           {/* New FastHire Button */}
@@ -271,7 +283,7 @@ export default function EmployerDashboard() {
             <View style={[styles.actionIcon, { backgroundColor: COLORS.employer.light }]}>
               <Ionicons name="flash" size={28} color={COLORS.employer.primary} />
             </View>
-            <Text style={styles.actionText}>FastHire</Text>
+            <Text style={styles.actionText}>FastHire AI</Text>
           </TouchableOpacity>
         </View>
 

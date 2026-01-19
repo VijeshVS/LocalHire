@@ -300,18 +300,16 @@ export default function MyJobsScreen() {
   const getFilteredApplications = () => {
     return applications.filter(app => {
       if (selectedTab === 'applied') {
-        // Applied/pending applications that haven't been accepted by employer yet
-        // Also include jobs where employer accepted but worker hasn't accepted the offer yet
-        // (these have status='accepted' but work_status is null or 'pending')
-        const isWaitingForWorkerResponse = app.status === 'accepted' && 
-          (!app.work_status || app.work_status === 'pending');
-        return app.status === 'applied' || app.status === 'pending' || 
-               app.status === 'shortlisted' || isWaitingForWorkerResponse;
+        // Applied/pending applications that are waiting for employer response
+        // EXCLUDE: jobs where employer accepted (status='accepted') - these go to Active
+        // Only show: applied, pending, shortlisted
+        return app.status === 'applied' || app.status === 'pending' || app.status === 'shortlisted';
       } else if (selectedTab === 'active') {
-        // Only show as active if:
-        // 1. Application status is 'accepted' (employer accepted)
-        // 2. work_status is 'in_progress' (worker accepted the offer)
-        return app.status === 'accepted' && app.work_status === 'in_progress';
+        // Active jobs include:
+        // 1. Jobs where employer accepted (status='accepted') AND worker is working (work_status='in_progress')
+        // 2. Jobs where employer accepted (status='accepted') BUT worker hasn't started yet (work_status is pending/null)
+        // Basically all 'accepted' jobs that are NOT completed
+        return app.status === 'accepted' && app.work_status !== 'completed';
       } else if (selectedTab === 'completed') {
         return app.work_status === 'completed' || app.status === 'rejected';
       }
@@ -959,8 +957,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: SPACING.md,
-    borderRadius: RADIUS.md,
+    paddingVertical: SPACING.sm,
+    borderRadius: RADIUS.sm,
     borderWidth: 1,
     borderColor: '#dc2626',
     gap: SPACING.xs,
@@ -975,8 +973,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: SPACING.md,
-    borderRadius: RADIUS.md,
+    paddingVertical: SPACING.sm,
+    borderRadius: RADIUS.sm,
     backgroundColor: COLORS.worker.primary,
     gap: SPACING.xs,
   },
@@ -1133,8 +1131,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: COLORS.worker.primary,
-    paddingVertical: SPACING.md,
-    borderRadius: RADIUS.md,
+    paddingVertical: SPACING.sm,
+    borderRadius: RADIUS.sm,
     gap: SPACING.xs,
   },
   completeButtonText: {
@@ -1146,9 +1144,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: SPACING.md,
+    paddingVertical: SPACING.sm,
     backgroundColor: '#d1fae5',
-    borderRadius: RADIUS.md,
+    borderRadius: RADIUS.sm,
     gap: SPACING.xs,
   },
   completedInfoText: {
@@ -1160,9 +1158,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: SPACING.md,
+    paddingVertical: SPACING.sm,
     backgroundColor: '#fee2e2',
-    borderRadius: RADIUS.md,
+    borderRadius: RADIUS.sm,
     gap: SPACING.xs,
   },
   rejectedInfoText: {
@@ -1174,9 +1172,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: SPACING.md,
+    paddingVertical: SPACING.sm,
     backgroundColor: '#fef3c7',
-    borderRadius: RADIUS.md,
+    borderRadius: RADIUS.sm,
     gap: SPACING.xs,
   },
   shortlistedInfoText: {
@@ -1188,9 +1186,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: SPACING.md,
+    paddingVertical: SPACING.sm,
     backgroundColor: '#fef3c7',
-    borderRadius: RADIUS.md,
+    borderRadius: RADIUS.sm,
     gap: SPACING.xs,
   },
   waitingInfoText: {

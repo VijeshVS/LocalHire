@@ -12,9 +12,9 @@ import {
   TextInput
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { getMyJobs } from '../../services/jobService';
+import { getMyJobs, getJobById } from '../../services/jobService';
 import { getJobApplications, updateApplicationStatus } from '../../services/employerApplicationService';
 import { getOrCreateConversation } from '../../services/messageService';
 import { confirmJobCompletion } from '../../services/jobCompletionService';
@@ -29,6 +29,7 @@ const filterOptions = [
 ];
 
 export default function Candidates() {
+  const { jobId } = useLocalSearchParams<{ jobId?: string }>();
   const [selectedFilter, setSelectedFilter] = useState('all');
   const [candidates, setCandidates] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -38,33 +39,36 @@ export default function Candidates() {
   const [workerRating, setWorkerRating] = useState(0);
   const [workerReview, setWorkerReview] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [jobTitle, setJobTitle] = useState<string>('');
 
   useEffect(() => {
     fetchCandidates();
-  }, []);
+  }, [jobId]);
 
   const fetchCandidates = async () => {
     try {
       setIsLoading(true);
-      // Get all employer's jobs first
-      const jobs = await getMyJobs();
       
-      // Fetch applications for each job
-      const allApplications: any[] = [];
-      for (const job of jobs) {
+      // If a specific jobId is provided, only fetch applications for that job
+      if (jobId) {
         try {
-          const applications = await getJobApplications(job.id);
-          console.log('Applications for job', job.id, ':', JSON.stringify(applications, null, 2));
+          // Get job details for the title
+          const job = await getJobById(jobId);
+          setJobTitle(job.title || 'Job');
+          
+          const applications = await getJobApplications(jobId);
+          console.log('Applications for job', jobId, ':', JSON.stringify(applications, null, 2));
+          
+          const jobApplications: any[] = [];
           applications.forEach((app: any) => {
-            // Backend returns 'employees' not 'employee', and uses 'name' not 'first_name/last_name'
             const employeeData = app.employees || app.employee;
             console.log('Employee data:', employeeData);
             const employeeName = employeeData?.name || 'Unknown';
             
-            allApplications.push({
+            jobApplications.push({
               id: app.id,
-              employeeId: employeeData?.id, // Store employee ID for messaging
-              jobId: job.id, // Store job ID for conversation context
+              employeeId: employeeData?.id,
+              jobId: jobId,
               name: employeeName,
               email: employeeData?.email || '',
               phone: employeeData?.phone || '',
@@ -72,7 +76,7 @@ export default function Candidates() {
               experience: employeeData?.years_of_experience ? `${employeeData.years_of_experience} years` : 'N/A',
               location: 'N/A',
               skills: employeeData?.skills || [],
-              appliedFor: job.title,
+              appliedFor: job.title || 'Job',
               appliedAt: new Date(app.applied_at).toLocaleDateString(),
               profileImage: employeeName.split(' ').map((n: string) => n[0]).join('').toUpperCase().slice(0, 2),
               verified: false,
@@ -85,17 +89,66 @@ export default function Candidates() {
               applicationId: app.id,
               reviews: [],
               language: employeeData?.language || 'N/A',
-              work_status: app.work_status || 'pending', // Add work status tracking
+              work_status: app.work_status || 'pending',
             });
           });
+          
+          setCandidates(jobApplications);
         } catch (err) {
-          // Continue even if fetching applications for one job fails
-          console.log(`Failed to fetch applications for job ${job.id}`);
+          console.log(`Failed to fetch applications for job ${jobId}:`, err);
+          setCandidates([]);
         }
-      }
+      } else {
+        // Get all employer's jobs if no specific jobId
+        const jobs = await getMyJobs();
+        setJobTitle('All Jobs');
       
-      if (allApplications.length > 0) {
-        setCandidates(allApplications);
+        // Fetch applications for each job
+        const allApplications: any[] = [];
+        for (const job of jobs) {
+          try {
+            const applications = await getJobApplications(job.id);
+            console.log('Applications for job', job.id, ':', JSON.stringify(applications, null, 2));
+            applications.forEach((app: any) => {
+              const employeeData = app.employees || app.employee;
+              console.log('Employee data:', employeeData);
+              const employeeName = employeeData?.name || 'Unknown';
+              
+              allApplications.push({
+                id: app.id,
+                employeeId: employeeData?.id,
+                jobId: job.id,
+                name: employeeName,
+                email: employeeData?.email || '',
+                phone: employeeData?.phone || '',
+                rating: employeeData?.rating || 4.5,
+                experience: employeeData?.years_of_experience ? `${employeeData.years_of_experience} years` : 'N/A',
+                location: 'N/A',
+                skills: employeeData?.skills || [],
+                appliedFor: job.title,
+                appliedAt: new Date(app.applied_at).toLocaleDateString(),
+                profileImage: employeeName.split(' ').map((n: string) => n[0]).join('').toUpperCase().slice(0, 2),
+                verified: false,
+                completedJobs: 0,
+                responseTime: 'N/A',
+                hourlyRate: 'N/A',
+                availability: 'N/A',
+                lastSeen: 'N/A',
+                status: app.status || 'applied',
+                applicationId: app.id,
+                reviews: [],
+                language: employeeData?.language || 'N/A',
+                work_status: app.work_status || 'pending',
+              });
+            });
+          } catch (err) {
+            console.log(`Failed to fetch applications for job ${job.id}`);
+          }
+        }
+        
+        if (allApplications.length > 0) {
+          setCandidates(allApplications);
+        }
       }
     } catch (error) {
       console.error('Error fetching candidates:', error);
@@ -379,7 +432,10 @@ export default function Candidates() {
         <TouchableOpacity onPress={() => router.back()}>
           <Ionicons name="arrow-back" size={24} color={COLORS.gray[800]} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Job Candidates</Text>
+        <View style={styles.headerTitleContainer}>
+          <Text style={styles.headerTitle}>Candidates</Text>
+          {jobTitle ? <Text style={styles.headerSubtitle} numberOfLines={1}>{jobTitle}</Text> : null}
+        </View>
         <TouchableOpacity>
           <Ionicons name="filter-outline" size={24} color={COLORS.gray[800]} />
         </TouchableOpacity>
@@ -636,10 +692,20 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: '#e5e7eb',
   },
+  headerTitleContainer: {
+    flex: 1,
+    alignItems: 'center',
+    marginHorizontal: 10,
+  },
   headerTitle: {
     fontSize: 18,
     fontWeight: '600',
     color: '#1f2937',
+  },
+  headerSubtitle: {
+    fontSize: 12,
+    color: COLORS.gray[500],
+    marginTop: 2,
   },
   filterContainer: {
     backgroundColor: 'white',

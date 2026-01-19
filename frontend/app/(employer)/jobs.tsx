@@ -10,13 +10,14 @@ import {
   ActivityIndicator,
   RefreshControl,
   ScrollView,
+  StatusBar,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
-import Icon from '../../components/Icon';
+import { Ionicons } from '@expo/vector-icons';
 import { getMyJobs, deleteJob as deleteJobApi } from '../../services/jobService';
 import { getJobApplications } from '../../services/employerApplicationService';
-import { COLORS, SPACING, RADIUS } from '../../constants/theme';
+import { COLORS, SPACING, RADIUS, TYPOGRAPHY, SHADOWS } from '../../constants/theme';
 
 type TabType = 'pending' | 'inprogress' | 'completed' | 'all';
 
@@ -49,7 +50,7 @@ export default function JobManagement() {
   const [jobs, setJobs] = useState<EnhancedJob[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const [selectedTab, setSelectedTab] = useState<TabType>('pending');
+  const [selectedTab, setSelectedTab] = useState<TabType>('all');
   const [selectedJob, setSelectedJob] = useState<any | null>(null);
   const [showActionModal, setShowActionModal] = useState(false);
 
@@ -61,7 +62,6 @@ export default function JobManagement() {
     try {
       const apiJobs = await getMyJobs();
       
-      // Fetch applications for each job in parallel
       const jobsWithApplications = await Promise.all(
         apiJobs.map(async (job: any) => {
           let applications: any[] = [];
@@ -81,7 +81,6 @@ export default function JobManagement() {
             app.work_status === 'completed'
           );
           
-          // Determine job work status
           let workStatus = 'open';
           if (completedWorkers.length > 0) {
             workStatus = 'completed';
@@ -119,16 +118,6 @@ export default function JobManagement() {
       );
       
       setJobs(jobsWithApplications);
-      
-      // Auto-select appropriate tab based on data
-      const hasPending = jobsWithApplications.some(j => j.work_status === 'pending_review');
-      const hasInProgress = jobsWithApplications.some(j => j.work_status === 'in_progress');
-      
-      if (hasPending) {
-        setSelectedTab('pending');
-      } else if (hasInProgress) {
-        setSelectedTab('inprogress');
-      }
     } catch (error) {
       console.log('Error fetching jobs:', error);
       setJobs([]);
@@ -165,49 +154,53 @@ export default function JobManagement() {
     const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
     
     if (diffHours < 1) return 'Just now';
-    if (diffHours < 24) return `${diffHours} hours ago`;
-    if (diffDays === 1) return '1 day ago';
-    return `${diffDays} days ago`;
+    if (diffHours < 24) return `${diffHours}h ago`;
+    if (diffDays === 1) return '1d ago';
+    return `${diffDays}d ago`;
   };
 
   const formatScheduleDate = (dateStr?: string, timeStr?: string) => {
-    if (!dateStr) return 'Not scheduled';
+    if (!dateStr) return null;
     const date = new Date(dateStr);
     const formattedDate = date.toLocaleDateString('en-IN', { 
       weekday: 'short', 
       day: 'numeric', 
       month: 'short' 
     });
-    return timeStr ? `${formattedDate} at ${timeStr}` : formattedDate;
+    return timeStr ? `${formattedDate}, ${timeStr}` : formattedDate;
   };
 
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'active': return COLORS.status.success;
-      case 'paused': return COLORS.status.warning;
-      case 'completed': return COLORS.system.primary;
-      case 'expired': return COLORS.status.error;
-      default: return COLORS.gray[500];
-    }
-  };
-
-  const getWorkStatusColor = (workStatus: string) => {
+  const getWorkStatusConfig = (workStatus: string) => {
     switch (workStatus) {
-      case 'in_progress': return COLORS.status.success;
-      case 'pending_review': return COLORS.status.warning;
-      case 'completed': return COLORS.system.primary;
-      case 'open': return COLORS.gray[500];
-      default: return COLORS.gray[500];
-    }
-  };
-
-  const getWorkStatusText = (workStatus: string) => {
-    switch (workStatus) {
-      case 'in_progress': return 'In Progress';
-      case 'pending_review': return 'Pending Review';
-      case 'completed': return 'Completed';
-      case 'open': return 'Open';
-      default: return 'Unknown';
+      case 'in_progress':
+        return { 
+          color: COLORS.worker.primary, 
+          bg: COLORS.worker.bg, 
+          text: 'In Progress',
+          icon: 'flash' as const
+        };
+      case 'pending_review':
+        return { 
+          color: COLORS.status.warning, 
+          bg: '#fef3c7', 
+          text: 'Pending',
+          icon: 'time' as const
+        };
+      case 'completed':
+        return { 
+          color: COLORS.system.primary, 
+          bg: COLORS.system.bg, 
+          text: 'Completed',
+          icon: 'checkmark-circle' as const
+        };
+      case 'open':
+      default:
+        return { 
+          color: COLORS.employer.primary, 
+          bg: COLORS.employer.bg, 
+          text: 'Open',
+          icon: 'radio-button-on' as const
+        };
     }
   };
 
@@ -224,10 +217,7 @@ export default function JobManagement() {
       case 'pause':
         Alert.alert('Pause Job', `Pause "${job.title}"?`, [
           { text: 'Cancel', style: 'cancel' },
-          { 
-            text: 'Pause', 
-            onPress: () => updateJobStatus(job.id, 'paused')
-          }
+          { text: 'Pause', onPress: () => updateJobStatus(job.id, 'paused') }
         ]);
         break;
       case 'activate':
@@ -236,30 +226,17 @@ export default function JobManagement() {
       case 'complete':
         Alert.alert('Mark Complete', `Mark "${job.title}" as completed?`, [
           { text: 'Cancel', style: 'cancel' },
-          { 
-            text: 'Complete', 
-            onPress: () => updateJobStatus(job.id, 'completed')
-          }
+          { text: 'Complete', onPress: () => updateJobStatus(job.id, 'completed') }
         ]);
         break;
       case 'delete':
-        Alert.alert('Delete Job', `Delete "${job.title}"? This action cannot be undone.`, [
+        Alert.alert('Delete Job', `Delete "${job.title}"? This cannot be undone.`, [
           { text: 'Cancel', style: 'cancel' },
-          { 
-            text: 'Delete', 
-            style: 'destructive',
-            onPress: () => deleteJob(job.id)
-          }
+          { text: 'Delete', style: 'destructive', onPress: () => deleteJob(job.id) }
         ]);
         break;
       case 'viewCandidates':
         router.push(`/(employer)/candidates?jobId=${job.id}`);
-        break;
-      case 'promote':
-        Alert.alert('Promote Job', 'Promote this job to reach more candidates?', [
-          { text: 'Cancel', style: 'cancel' },
-          { text: 'Promote', onPress: () => console.log('Promote job') }
-        ]);
         break;
       default:
         break;
@@ -279,13 +256,11 @@ export default function JobManagement() {
       setJobs(prev => prev.filter(job => job.id !== jobId));
       Alert.alert('Success', 'Job deleted successfully');
     } catch (error: any) {
-      // Still delete locally if API fails (for demo purposes)
       setJobs(prev => prev.filter(job => job.id !== jobId));
       console.log('Error deleting job:', error);
     }
   };
 
-  // Get filtered jobs based on selected tab
   const getFilteredJobs = () => {
     switch (selectedTab) {
       case 'pending':
@@ -302,7 +277,6 @@ export default function JobManagement() {
 
   const filteredJobs = getFilteredJobs();
 
-  // Tab counts
   const tabCounts = {
     pending: jobs.filter(job => job.work_status === 'pending_review' || (job.pendingApplications > 0 && job.work_status !== 'completed')).length,
     inprogress: jobs.filter(job => job.work_status === 'in_progress').length,
@@ -311,249 +285,200 @@ export default function JobManagement() {
   };
 
   const tabs = [
-    { key: 'pending' as TabType, label: 'Pending Review', icon: 'time', count: tabCounts.pending },
-    { key: 'inprogress' as TabType, label: 'In Progress', icon: 'play-circle', count: tabCounts.inprogress },
-    { key: 'completed' as TabType, label: 'Completed', icon: 'checkmark-circle', count: tabCounts.completed },
-    { key: 'all' as TabType, label: 'All Jobs', icon: 'briefcase', count: tabCounts.all },
+    { key: 'all' as TabType, label: 'All', count: tabCounts.all },
+    { key: 'pending' as TabType, label: 'Pending', count: tabCounts.pending },
+    { key: 'inprogress' as TabType, label: 'Active', count: tabCounts.inprogress },
+    { key: 'completed' as TabType, label: 'Done', count: tabCounts.completed },
   ];
 
   if (isLoading) {
     return (
-      <SafeAreaView style={[styles.container, { justifyContent: 'center', alignItems: 'center' }]}>
-        <ActivityIndicator size="large" color={COLORS.employer.primary} />
-        <Text style={styles.loadingText}>Loading your jobs...</Text>
+      <SafeAreaView style={styles.container} edges={['top']}>
+        <StatusBar barStyle="dark-content" backgroundColor={COLORS.white} />
+        <View style={styles.loadingContainer}>
+          <View style={styles.loadingIcon}>
+            <Ionicons name="briefcase" size={32} color={COLORS.employer.primary} />
+          </View>
+          <ActivityIndicator size="large" color={COLORS.employer.primary} style={{ marginTop: SPACING.lg }} />
+          <Text style={styles.loadingText}>Loading your jobs...</Text>
+        </View>
       </SafeAreaView>
     );
   }
 
-  const renderJobCard = ({ item }: { item: EnhancedJob }) => (
-    <View style={[
-      styles.jobCard,
-      item.work_status === 'in_progress' && styles.inProgressCard,
-      item.work_status === 'completed' && styles.completedCard,
-    ]}>
-      {/* Work Status Banner */}
-      {item.work_status === 'in_progress' && (
-        <View style={styles.workStatusBanner}>
-          <Icon name="play-circle" size={14} color={COLORS.status.success} />
-          <Text style={styles.workStatusBannerText}>
-            Worker currently hired • {item.hired} active
-          </Text>
-        </View>
-      )}
-      
-      {item.work_status === 'pending_review' && item.pendingApplications > 0 && (
-        <View style={[styles.workStatusBanner, styles.pendingBanner]}>
-          <Icon name="notifications" size={14} color={COLORS.status.warning} />
-          <Text style={[styles.workStatusBannerText, { color: COLORS.status.warning }]}>
-            {item.pendingApplications} applicant{item.pendingApplications > 1 ? 's' : ''} waiting for review
-          </Text>
-        </View>
-      )}
-
-      {/* Job Header */}
-      <View style={styles.jobHeader}>
-        <View style={styles.jobTitleContainer}>
-          <Text style={styles.jobTitle}>{item.title}</Text>
-          <Text style={styles.jobCategory}>{item.category} • {item.location}</Text>
-        </View>
+  const renderJobCard = ({ item }: { item: EnhancedJob }) => {
+    const statusConfig = getWorkStatusConfig(item.work_status);
+    const scheduleText = formatScheduleDate(item.scheduled_date, item.scheduled_time);
+    
+    return (
+      <TouchableOpacity 
+        style={styles.jobCard}
+        onPress={() => handleJobAction('viewCandidates', item)}
+        activeOpacity={0.7}
+      >
+        {/* Status Indicator Bar */}
+        <View style={[styles.statusBar, { backgroundColor: statusConfig.color }]} />
         
-        <TouchableOpacity
-          style={styles.moreButton}
-          onPress={() => {
-            setSelectedJob(item);
-            setShowActionModal(true);
-          }}
-        >
-          <Icon name="ellipsis-vertical" size={20} color="#6b7280" />
-        </TouchableOpacity>
-      </View>
-
-      {/* Schedule Info */}
-      {item.scheduled_date && (
-        <View style={styles.scheduleInfo}>
-          <Icon name="calendar" size={14} color={COLORS.employer.primary} />
-          <Text style={styles.scheduleText}>
-            {formatScheduleDate(item.scheduled_date, item.scheduled_time)}
-            {item.scheduled_end_time && ` - ${item.scheduled_end_time}`}
-          </Text>
-        </View>
-      )}
-
-      {/* Job Status & Budget */}
-      <View style={styles.jobMeta}>
-        <View style={[styles.statusBadge, { backgroundColor: getStatusColor(item.status) + '20' }]}>
-          <Text style={[styles.statusText, { color: getStatusColor(item.status) }]}>
-            {item.status === 'active' ? 'Active' : item.status === 'paused' ? 'Paused' : item.status}
-          </Text>
-        </View>
-        
-        <View style={[styles.workStatusBadge, { backgroundColor: getWorkStatusColor(item.work_status) + '20' }]}>
-          <Text style={[styles.statusText, { color: getWorkStatusColor(item.work_status) }]}>
-            {getWorkStatusText(item.work_status)}
-          </Text>
-        </View>
-        
-        <Text style={styles.jobBudget}>{item.budget}</Text>
-      </View>
-
-      {/* Job Stats */}
-      <View style={styles.jobStats}>
-        <View style={styles.statItem}>
-          <Icon name="people" size={16} color="#6b7280" />
-          <Text style={styles.statText}>{item.applicants} applicants</Text>
-        </View>
-        
-        <View style={styles.statItem}>
-          <Icon name="checkmark-circle" size={16} color={COLORS.status.success} />
-          <Text style={styles.statText}>{item.hired} hired</Text>
-        </View>
-        
-        <Text style={styles.postedTime}>{item.posted}</Text>
-      </View>
-
-      {/* Hired Workers Preview */}
-      {item.hiredWorkers.length > 0 && (
-        <View style={styles.hiredWorkersSection}>
-          <Text style={styles.hiredWorkersTitle}>Hired Workers:</Text>
-          {item.hiredWorkers.slice(0, 2).map((worker: any, index: number) => (
-            <View key={index} style={styles.hiredWorkerRow}>
-              <View style={styles.workerAvatar}>
-                <Text style={styles.workerAvatarText}>
-                  {(worker.employees?.name || 'W').charAt(0).toUpperCase()}
-                </Text>
-              </View>
-              <Text style={styles.hiredWorkerName}>{worker.employees?.name || 'Worker'}</Text>
-              <View style={[styles.workerStatusBadge, { 
-                backgroundColor: worker.work_status === 'completed' ? COLORS.system.primary + '20' : COLORS.status.success + '20' 
-              }]}>
-                <Text style={[styles.workerStatusText, { 
-                  color: worker.work_status === 'completed' ? COLORS.system.primary : COLORS.status.success 
-                }]}>
-                  {worker.work_status === 'completed' ? 'Completed' : 'Working'}
-                </Text>
-              </View>
+        <View style={styles.cardContent}>
+          {/* Header Row */}
+          <View style={styles.cardHeader}>
+            <View style={styles.titleSection}>
+              <Text style={styles.jobTitle} numberOfLines={1}>{item.title}</Text>
+              <Text style={styles.jobMeta}>{item.category}</Text>
             </View>
-          ))}
-          {item.hiredWorkers.length > 2 && (
-            <Text style={styles.moreWorkersText}>+{item.hiredWorkers.length - 2} more</Text>
-          )}
-        </View>
-      )}
+            <View style={styles.budgetBadge}>
+              <Text style={styles.budgetText}>{item.budget}</Text>
+            </View>
+          </View>
 
-      {/* Action Buttons */}
-      <View style={styles.jobActions}>
-        <TouchableOpacity
-          style={styles.actionButton}
-          onPress={() => handleJobAction('viewCandidates', item)}
-        >
-          <Icon name="people" size={16} color={COLORS.employer.primary} />
-          <Text style={styles.actionButtonText}>
-            {item.pendingApplications > 0 ? `Review (${item.pendingApplications})` : 'Candidates'}
-          </Text>
-        </TouchableOpacity>
-        
-        {item.status === 'active' && item.work_status !== 'completed' && (
-          <TouchableOpacity
-            style={[styles.actionButton, styles.secondaryAction]}
-            onPress={() => handleJobAction('pause', item)}
-          >
-            <Icon name="pause" size={16} color={COLORS.status.warning} />
-            <Text style={[styles.actionButtonText, { color: COLORS.status.warning }]}>Pause</Text>
-          </TouchableOpacity>
-        )}
-        
-        {item.status === 'paused' && (
-          <TouchableOpacity
-            style={[styles.actionButton, styles.successAction]}
-            onPress={() => handleJobAction('activate', item)}
-          >
-            <Icon name="play" size={16} color={COLORS.status.success} />
-            <Text style={[styles.actionButtonText, { color: COLORS.status.success }]}>Activate</Text>
-          </TouchableOpacity>
-        )}
-      </View>
-    </View>
-  );
+          {/* Location */}
+          <View style={styles.locationRow}>
+            <Ionicons name="location-outline" size={14} color={COLORS.gray[400]} />
+            <Text style={styles.locationText} numberOfLines={1}>{item.location}</Text>
+          </View>
+
+          {/* Schedule (if set) */}
+          {scheduleText && (
+            <View style={styles.scheduleRow}>
+              <Ionicons name="calendar" size={14} color={COLORS.employer.primary} />
+              <Text style={styles.scheduleText}>{scheduleText}</Text>
+            </View>
+          )}
+
+          {/* Stats Row */}
+          <View style={styles.statsRow}>
+            <View style={styles.statItem}>
+              <Ionicons name="people" size={14} color={COLORS.gray[500]} />
+              <Text style={styles.statText}>{item.applicants}</Text>
+            </View>
+            <View style={styles.statDivider} />
+            <View style={styles.statItem}>
+              <Ionicons name="checkmark-done" size={14} color={COLORS.worker.primary} />
+              <Text style={[styles.statText, { color: COLORS.worker.primary }]}>{item.hired} hired</Text>
+            </View>
+            <View style={styles.statDivider} />
+            <View style={[styles.statusBadge, { backgroundColor: statusConfig.bg }]}>
+              <Ionicons name={statusConfig.icon} size={12} color={statusConfig.color} />
+              <Text style={[styles.statusBadgeText, { color: statusConfig.color }]}>{statusConfig.text}</Text>
+            </View>
+            <Text style={styles.timeText}>{item.posted}</Text>
+          </View>
+
+          {/* Hired Workers Preview */}
+          {item.hiredWorkers.length > 0 && (
+            <View style={styles.hiredPreview}>
+              <View style={styles.avatarRow}>
+                {item.hiredWorkers.slice(0, 3).map((worker: any, idx: number) => (
+                  <View key={idx} style={[styles.avatar, { marginLeft: idx > 0 ? -10 : 0, zIndex: 3 - idx }]}>
+                    <Text style={styles.avatarText}>
+                      {(worker.employees?.name || 'W').charAt(0).toUpperCase()}
+                    </Text>
+                  </View>
+                ))}
+                {item.hiredWorkers.length > 3 && (
+                  <View style={[styles.avatar, styles.avatarMore, { marginLeft: -10 }]}>
+                    <Text style={styles.avatarMoreText}>+{item.hiredWorkers.length - 3}</Text>
+                  </View>
+                )}
+              </View>
+              <Text style={styles.hiredLabel}>
+                {item.hiredWorkers.length} worker{item.hiredWorkers.length > 1 ? 's' : ''} assigned
+              </Text>
+            </View>
+          )}
+
+          {/* Action Buttons */}
+          <View style={styles.actionsRow}>
+            {item.pendingApplications > 0 && (
+              <TouchableOpacity 
+                style={styles.reviewBtn}
+                onPress={() => handleJobAction('viewCandidates', item)}
+              >
+                <Ionicons name="eye" size={14} color={COLORS.white} />
+                <Text style={styles.reviewBtnText}>Review {item.pendingApplications}</Text>
+              </TouchableOpacity>
+            )}
+            
+            <View style={styles.iconBtns}>
+              {item.status === 'active' && item.work_status !== 'completed' && (
+                <TouchableOpacity 
+                  style={[styles.iconBtn, styles.pauseBtn]}
+                  onPress={() => handleJobAction('pause', item)}
+                >
+                  <Ionicons name="pause" size={14} color={COLORS.status.warning} />
+                </TouchableOpacity>
+              )}
+              
+              {item.status === 'paused' && (
+                <TouchableOpacity 
+                  style={[styles.iconBtn, styles.playBtn]}
+                  onPress={() => handleJobAction('activate', item)}
+                >
+                  <Ionicons name="play" size={14} color={COLORS.worker.primary} />
+                </TouchableOpacity>
+              )}
+              
+              <TouchableOpacity 
+                style={styles.iconBtn}
+                onPress={() => {
+                  setSelectedJob(item);
+                  setShowActionModal(true);
+                }}
+              >
+                <Ionicons name="ellipsis-horizontal" size={16} color={COLORS.gray[600]} />
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </TouchableOpacity>
+    );
+  };
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
+      <StatusBar barStyle="dark-content" backgroundColor={COLORS.white} />
+      
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()}>
-          <Icon name="arrow-back" size={24} color={COLORS.gray[800]} />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>My Jobs</Text>
-        <TouchableOpacity onPress={() => router.push('/(employer)/post-job')}>
-          <Icon name="add" size={24} color={COLORS.employer.primary} />
+        <View style={styles.headerLeft}>
+          <Text style={styles.headerTitle}>My Jobs</Text>
+          <Text style={styles.headerSubtitle}>{jobs.length} total jobs</Text>
+        </View>
+        <TouchableOpacity 
+          style={styles.postBtn} 
+          onPress={() => router.push('/(employer)/post-job')}
+        >
+          <Ionicons name="add" size={18} color={COLORS.white} />
+          <Text style={styles.postBtnText}>New Job</Text>
         </TouchableOpacity>
       </View>
 
-      {/* Tab Navigation */}
-      <ScrollView 
-        horizontal 
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.tabsContainer}
-      >
-        {tabs.map((tab) => (
-          <TouchableOpacity
-            key={tab.key}
-            style={[
-              styles.tab,
-              selectedTab === tab.key && styles.activeTab
-            ]}
-            onPress={() => setSelectedTab(tab.key)}
-          >
-            <Icon 
-              name={tab.icon as any} 
-              size={18} 
-              color={selectedTab === tab.key ? COLORS.white : COLORS.gray[500]} 
-            />
-            <Text style={[
-              styles.tabText,
-              selectedTab === tab.key && styles.activeTabText
-            ]}>
-              {tab.label}
-            </Text>
-            {tab.count > 0 && (
-              <View style={[
-                styles.tabBadge,
-                selectedTab === tab.key && styles.activeTabBadge
-              ]}>
-                <Text style={[
-                  styles.tabBadgeText,
-                  selectedTab === tab.key && styles.activeTabBadgeText
-                ]}>
-                  {tab.count}
-                </Text>
-              </View>
-            )}
-          </TouchableOpacity>
-        ))}
-      </ScrollView>
-
-      {/* Tab Description */}
-      <View style={styles.tabDescription}>
-        {selectedTab === 'pending' && (
-          <Text style={styles.tabDescriptionText}>
-            Jobs with applicants waiting for your review
-          </Text>
-        )}
-        {selectedTab === 'inprogress' && (
-          <Text style={styles.tabDescriptionText}>
-            Jobs where workers are currently hired and working
-          </Text>
-        )}
-        {selectedTab === 'completed' && (
-          <Text style={styles.tabDescriptionText}>
-            Jobs that have been completed
-          </Text>
-        )}
-        {selectedTab === 'all' && (
-          <Text style={styles.tabDescriptionText}>
-            All your job postings
-          </Text>
-        )}
+      {/* Filter Tabs */}
+      <View style={styles.tabsContainer}>
+        <ScrollView 
+          horizontal 
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.tabsContent}
+        >
+          {tabs.map((tab) => (
+            <TouchableOpacity
+              key={tab.key}
+              style={[styles.tab, selectedTab === tab.key && styles.tabActive]}
+              onPress={() => setSelectedTab(tab.key)}
+            >
+              <Text style={[styles.tabText, selectedTab === tab.key && styles.tabTextActive]}>
+                {tab.label}
+              </Text>
+              {tab.count > 0 && (
+                <View style={[styles.tabBadge, selectedTab === tab.key && styles.tabBadgeActive]}>
+                  <Text style={[styles.tabBadgeText, selectedTab === tab.key && styles.tabBadgeTextActive]}>
+                    {tab.count}
+                  </Text>
+                </View>
+              )}
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
       </View>
 
       {/* Jobs List */}
@@ -561,8 +486,8 @@ export default function JobManagement() {
         data={filteredJobs}
         renderItem={renderJobCard}
         keyExtractor={(item) => item.id}
-        style={styles.jobsList}
-        contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 20 }}
+        style={styles.list}
+        contentContainerStyle={styles.listContent}
         showsVerticalScrollIndicator={false}
         refreshControl={
           <RefreshControl
@@ -574,29 +499,32 @@ export default function JobManagement() {
         }
         ListEmptyComponent={
           <View style={styles.emptyState}>
-            <Icon name={tabs.find(t => t.key === selectedTab)?.icon as any || 'briefcase'} size={48} color="#d1d5db" />
-            <Text style={styles.emptyStateTitle}>
-              {selectedTab === 'pending' && 'No pending applications'}
-              {selectedTab === 'inprogress' && 'No jobs in progress'}
-              {selectedTab === 'completed' && 'No completed jobs'}
-              {selectedTab === 'all' && 'No jobs found'}
+            <View style={styles.emptyIconContainer}>
+              <Ionicons name="briefcase-outline" size={48} color={COLORS.gray[300]} />
+            </View>
+            <Text style={styles.emptyTitle}>
+              {selectedTab === 'pending' ? 'No pending reviews' :
+               selectedTab === 'inprogress' ? 'No active jobs' :
+               selectedTab === 'completed' ? 'No completed jobs' :
+               'No jobs yet'}
             </Text>
-            <Text style={styles.emptyStateText}>
-              {selectedTab === 'pending' && 'When candidates apply to your jobs, they will appear here for review.'}
-              {selectedTab === 'inprogress' && 'Once you hire a worker, their job will appear here.'}
-              {selectedTab === 'completed' && 'Completed jobs will be shown here.'}
-              {selectedTab === 'all' && 'Start by posting your first job to find workers in your area.'}
+            <Text style={styles.emptySubtitle}>
+              {selectedTab === 'all' 
+                ? 'Post your first job to find workers' 
+                : 'Jobs will appear here when available'}
             </Text>
             {selectedTab === 'all' && (
               <TouchableOpacity 
-                style={styles.postJobButton}
+                style={styles.emptyBtn}
                 onPress={() => router.push('/(employer)/post-job')}
               >
-                <Text style={styles.postJobButtonText}>Post a Job</Text>
+                <Ionicons name="add-circle" size={18} color={COLORS.white} />
+                <Text style={styles.emptyBtnText}>Post Your First Job</Text>
               </TouchableOpacity>
             )}
           </View>
         }
+        ItemSeparatorComponent={() => <View style={{ height: SPACING.md }} />}
       />
 
       {/* Action Modal */}
@@ -606,56 +534,105 @@ export default function JobManagement() {
         animationType="slide"
         onRequestClose={() => setShowActionModal(false)}
       >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Job Actions</Text>
-              <TouchableOpacity onPress={() => setShowActionModal(false)}>
-                <Icon name="close" size={24} color="#374151" />
-              </TouchableOpacity>
-            </View>
+        <TouchableOpacity 
+          style={styles.modalOverlay} 
+          activeOpacity={1} 
+          onPress={() => setShowActionModal(false)}
+        >
+          <View style={styles.modalSheet}>
+            <View style={styles.modalHandle} />
             
             {selectedJob && (
-              <View style={styles.modalBody}>
-                <Text style={styles.modalJobTitle}>{selectedJob.title}</Text>
+              <>
+                <Text style={styles.modalTitle} numberOfLines={1}>{selectedJob.title}</Text>
+                <Text style={styles.modalSubtitle}>{selectedJob.category} • {selectedJob.location}</Text>
                 
-                <TouchableOpacity
-                  style={styles.modalAction}
-                  onPress={() => handleJobAction('edit', selectedJob)}
-                >
-                  <Icon name="edit" size={20} color="#2563eb" />
-                  <Text style={styles.modalActionText}>Edit Job</Text>
-                </TouchableOpacity>
-                
-                <TouchableOpacity
-                  style={styles.modalAction}
-                  onPress={() => handleJobAction('promote', selectedJob)}
-                >
-                  <Icon name="trending-up" size={20} color="#8b5cf6" />
-                  <Text style={styles.modalActionText}>Promote Job</Text>
-                </TouchableOpacity>
-                
-                {selectedJob.status === 'active' && (
-                  <TouchableOpacity
-                    style={styles.modalAction}
-                    onPress={() => handleJobAction('complete', selectedJob)}
+                <View style={styles.modalActions}>
+                  <TouchableOpacity 
+                    style={styles.modalAction} 
+                    onPress={() => handleJobAction('viewCandidates', selectedJob)}
                   >
-                    <Icon name="checkmark-circle" size={20} color="#16a34a" />
-                    <Text style={styles.modalActionText}>Mark as Complete</Text>
+                    <View style={[styles.modalActionIcon, { backgroundColor: COLORS.employer.bg }]}>
+                      <Ionicons name="people" size={20} color={COLORS.employer.primary} />
+                    </View>
+                    <View style={styles.modalActionContent}>
+                      <Text style={styles.modalActionText}>View Candidates</Text>
+                      <Text style={styles.modalActionHint}>{selectedJob.applicants} applicants</Text>
+                    </View>
+                    <Ionicons name="chevron-forward" size={18} color={COLORS.gray[400]} />
                   </TouchableOpacity>
-                )}
+                  
+                  <TouchableOpacity 
+                    style={styles.modalAction} 
+                    onPress={() => handleJobAction('edit', selectedJob)}
+                  >
+                    <View style={[styles.modalActionIcon, { backgroundColor: '#dbeafe' }]}>
+                      <Ionicons name="create" size={20} color="#2563eb" />
+                    </View>
+                    <View style={styles.modalActionContent}>
+                      <Text style={styles.modalActionText}>Edit Job</Text>
+                      <Text style={styles.modalActionHint}>Update details</Text>
+                    </View>
+                    <Ionicons name="chevron-forward" size={18} color={COLORS.gray[400]} />
+                  </TouchableOpacity>
+                  
+                  {selectedJob.status === 'active' && (
+                    <TouchableOpacity 
+                      style={styles.modalAction} 
+                      onPress={() => handleJobAction('pause', selectedJob)}
+                    >
+                      <View style={[styles.modalActionIcon, { backgroundColor: '#fef3c7' }]}>
+                        <Ionicons name="pause" size={20} color={COLORS.status.warning} />
+                      </View>
+                      <View style={styles.modalActionContent}>
+                        <Text style={styles.modalActionText}>Pause Job</Text>
+                        <Text style={styles.modalActionHint}>Stop receiving applications</Text>
+                      </View>
+                      <Ionicons name="chevron-forward" size={18} color={COLORS.gray[400]} />
+                    </TouchableOpacity>
+                  )}
+                  
+                  {selectedJob.status === 'paused' && (
+                    <TouchableOpacity 
+                      style={styles.modalAction} 
+                      onPress={() => handleJobAction('activate', selectedJob)}
+                    >
+                      <View style={[styles.modalActionIcon, { backgroundColor: COLORS.worker.bg }]}>
+                        <Ionicons name="play" size={20} color={COLORS.worker.primary} />
+                      </View>
+                      <View style={styles.modalActionContent}>
+                        <Text style={styles.modalActionText}>Activate Job</Text>
+                        <Text style={styles.modalActionHint}>Resume receiving applications</Text>
+                      </View>
+                      <Ionicons name="chevron-forward" size={18} color={COLORS.gray[400]} />
+                    </TouchableOpacity>
+                  )}
+                  
+                  <TouchableOpacity 
+                    style={[styles.modalAction, styles.modalActionDanger]} 
+                    onPress={() => handleJobAction('delete', selectedJob)}
+                  >
+                    <View style={[styles.modalActionIcon, { backgroundColor: '#fee2e2' }]}>
+                      <Ionicons name="trash" size={20} color={COLORS.status.error} />
+                    </View>
+                    <View style={styles.modalActionContent}>
+                      <Text style={[styles.modalActionText, { color: COLORS.status.error }]}>Delete Job</Text>
+                      <Text style={styles.modalActionHint}>This cannot be undone</Text>
+                    </View>
+                    <Ionicons name="chevron-forward" size={18} color={COLORS.gray[400]} />
+                  </TouchableOpacity>
+                </View>
                 
-                <TouchableOpacity
-                  style={[styles.modalAction, styles.deleteAction]}
-                  onPress={() => handleJobAction('delete', selectedJob)}
+                <TouchableOpacity 
+                  style={styles.cancelBtn}
+                  onPress={() => setShowActionModal(false)}
                 >
-                  <Icon name="trash" size={20} color="#ef4444" />
-                  <Text style={[styles.modalActionText, { color: '#ef4444' }]}>Delete Job</Text>
+                  <Text style={styles.cancelBtnText}>Cancel</Text>
                 </TouchableOpacity>
-              </View>
+              </>
             )}
           </View>
-        </View>
+        </TouchableOpacity>
       </Modal>
     </SafeAreaView>
   );
@@ -664,202 +641,214 @@ export default function JobManagement() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f8fafc',
+    backgroundColor: COLORS.gray[50],
   },
-  header: {
-    flexDirection: 'row',
+  
+  // Loading State
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingVertical: 16,
-    backgroundColor: 'white',
-    borderBottomWidth: 1,
-    borderBottomColor: '#e5e7eb',
   },
-  headerTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#1f2937',
+  loadingIcon: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    backgroundColor: COLORS.employer.bg,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   loadingText: {
-    marginTop: 12,
-    fontSize: 14,
+    marginTop: SPACING.md,
+    fontSize: TYPOGRAPHY.sizes.sm,
     color: COLORS.gray[500],
   },
-  // Tab Navigation
+
+  // Header
+  header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: SPACING.xl,
+    paddingVertical: SPACING.lg,
+    backgroundColor: COLORS.white,
+    ...SHADOWS.sm,
+  },
+  headerLeft: {
+    flex: 1,
+  },
+  headerTitle: {
+    fontSize: TYPOGRAPHY.sizes.xl,
+    fontWeight: TYPOGRAPHY.weights.bold,
+    color: COLORS.gray[900],
+  },
+  headerSubtitle: {
+    fontSize: TYPOGRAPHY.sizes.sm,
+    color: COLORS.gray[500],
+    marginTop: 2,
+  },
+  postBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: COLORS.employer.primary,
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.sm,
+    borderRadius: RADIUS.md,
+    gap: 6,
+  },
+  postBtnText: {
+    fontSize: TYPOGRAPHY.sizes.sm,
+    fontWeight: TYPOGRAPHY.weights.semibold,
+    color: COLORS.white,
+  },
+
+  // Tabs
   tabsContainer: {
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    backgroundColor: 'white',
+    backgroundColor: COLORS.white,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.gray[100],
+  },
+  tabsContent: {
+    paddingHorizontal: SPACING.lg,
+    paddingVertical: SPACING.sm,
+    gap: SPACING.sm,
   },
   tab: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    marginRight: 10,
-    borderRadius: 20,
-    backgroundColor: '#f3f4f6',
+    paddingHorizontal: SPACING.lg,
+    paddingVertical: SPACING.sm,
+    borderRadius: RADIUS.full,
+    backgroundColor: COLORS.gray[100],
+    marginRight: SPACING.sm,
     gap: 6,
   },
-  activeTab: {
+  tabActive: {
     backgroundColor: COLORS.employer.primary,
   },
   tabText: {
-    fontSize: 13,
-    fontWeight: '500',
-    color: COLORS.gray[500],
+    fontSize: TYPOGRAPHY.sizes.sm,
+    fontWeight: TYPOGRAPHY.weights.medium,
+    color: COLORS.gray[600],
   },
-  activeTabText: {
+  tabTextActive: {
     color: COLORS.white,
   },
   tabBadge: {
-    backgroundColor: '#e5e7eb',
-    borderRadius: 10,
+    backgroundColor: COLORS.gray[300],
     paddingHorizontal: 6,
     paddingVertical: 2,
+    borderRadius: 10,
     minWidth: 20,
     alignItems: 'center',
   },
-  activeTabBadge: {
-    backgroundColor: 'rgba(255, 255, 255, 0.25)',
+  tabBadgeActive: {
+    backgroundColor: 'rgba(255,255,255,0.3)',
   },
   tabBadgeText: {
-    fontSize: 11,
-    fontWeight: '600',
-    color: '#374151',
+    fontSize: 10,
+    fontWeight: TYPOGRAPHY.weights.bold,
+    color: COLORS.gray[700],
   },
-  activeTabBadgeText: {
-    color: 'white',
+  tabBadgeTextActive: {
+    color: COLORS.white,
   },
-  tabDescription: {
-    paddingHorizontal: 20,
-    paddingVertical: 8,
-    backgroundColor: '#f8fafc',
-    borderBottomWidth: 1,
-    borderBottomColor: '#e5e7eb',
-  },
-  tabDescriptionText: {
-    fontSize: 13,
-    color: COLORS.gray[500],
-    fontStyle: 'italic',
-  },
-  // Jobs List
-  jobsList: {
+
+  // List
+  list: {
     flex: 1,
   },
+  listContent: {
+    padding: SPACING.lg,
+    paddingBottom: 100,
+  },
+
+  // Job Card
   jobCard: {
-    backgroundColor: 'white',
-    borderRadius: 12,
-    padding: 16,
-    marginTop: 12,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    elevation: 3,
+    backgroundColor: COLORS.white,
+    borderRadius: RADIUS.lg,
+    overflow: 'hidden',
+    ...SHADOWS.md,
   },
-  inProgressCard: {
-    borderLeftWidth: 4,
-    borderLeftColor: COLORS.status.success,
+  statusBar: {
+    height: 4,
+    width: '100%',
   },
-  completedCard: {
-    borderLeftWidth: 4,
-    borderLeftColor: COLORS.system.primary,
-    opacity: 0.85,
+  cardContent: {
+    padding: SPACING.lg,
   },
-  // Work Status Banner
-  workStatusBanner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: COLORS.status.success + '15',
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 6,
-    marginBottom: 12,
-    gap: 6,
-  },
-  pendingBanner: {
-    backgroundColor: COLORS.status.warning + '15',
-  },
-  workStatusBannerText: {
-    fontSize: 12,
-    fontWeight: '500',
-    color: COLORS.status.success,
-  },
-  // Job Header
-  jobHeader: {
+  cardHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-start',
-    marginBottom: 8,
+    marginBottom: SPACING.sm,
   },
-  jobTitleContainer: {
+  titleSection: {
     flex: 1,
+    marginRight: SPACING.md,
   },
   jobTitle: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#1f2937',
-    marginBottom: 4,
+    fontSize: TYPOGRAPHY.sizes.base,
+    fontWeight: TYPOGRAPHY.weights.semibold,
+    color: COLORS.gray[900],
+    marginBottom: 2,
   },
-  jobCategory: {
-    fontSize: 13,
-    color: '#6b7280',
+  jobMeta: {
+    fontSize: TYPOGRAPHY.sizes.xs,
+    color: COLORS.gray[500],
   },
-  moreButton: {
-    padding: 4,
+  budgetBadge: {
+    backgroundColor: COLORS.employer.bg,
+    paddingHorizontal: SPACING.sm,
+    paddingVertical: 4,
+    borderRadius: RADIUS.sm,
   },
-  // Schedule Info
-  scheduleInfo: {
+  budgetText: {
+    fontSize: TYPOGRAPHY.sizes.sm,
+    fontWeight: TYPOGRAPHY.weights.bold,
+    color: COLORS.employer.primary,
+  },
+  
+  // Location
+  locationRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginBottom: SPACING.sm,
+  },
+  locationText: {
+    fontSize: TYPOGRAPHY.sizes.xs,
+    color: COLORS.gray[500],
+    flex: 1,
+  },
+
+  // Schedule
+  scheduleRow: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: COLORS.employer.bg,
-    paddingHorizontal: 10,
+    paddingHorizontal: SPACING.sm,
     paddingVertical: 6,
-    borderRadius: 6,
-    marginBottom: 10,
+    borderRadius: RADIUS.sm,
+    marginBottom: SPACING.sm,
+    alignSelf: 'flex-start',
     gap: 6,
   },
   scheduleText: {
-    fontSize: 12,
-    fontWeight: '500',
+    fontSize: TYPOGRAPHY.sizes.xs,
+    fontWeight: TYPOGRAPHY.weights.medium,
     color: COLORS.employer.primary,
   },
-  // Job Meta
-  jobMeta: {
+
+  // Stats Row
+  statsRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    flexWrap: 'wrap',
-    marginBottom: 12,
-    gap: 8,
-  },
-  statusBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 12,
-  },
-  workStatusBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 12,
-  },
-  statusText: {
-    fontSize: 11,
-    fontWeight: '600',
-  },
-  jobBudget: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: COLORS.status.success,
-    marginLeft: 'auto',
-  },
-  // Job Stats
-  jobStats: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 12,
-    gap: 16,
+    paddingTop: SPACING.sm,
+    paddingBottom: SPACING.sm,
+    borderTopWidth: 1,
+    borderTopColor: COLORS.gray[100],
+    gap: SPACING.sm,
   },
   statItem: {
     flexDirection: 'row',
@@ -867,173 +856,235 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   statText: {
-    fontSize: 12,
-    color: '#6b7280',
-  },
-  postedTime: {
-    fontSize: 12,
-    color: '#9ca3af',
-    marginLeft: 'auto',
-  },
-  // Hired Workers Section
-  hiredWorkersSection: {
-    backgroundColor: '#f8fafc',
-    borderRadius: 8,
-    padding: 12,
-    marginBottom: 12,
-  },
-  hiredWorkersTitle: {
-    fontSize: 12,
-    fontWeight: '600',
+    fontSize: TYPOGRAPHY.sizes.xs,
     color: COLORS.gray[600],
-    marginBottom: 8,
   },
-  hiredWorkerRow: {
+  statDivider: {
+    width: 1,
+    height: 12,
+    backgroundColor: COLORS.gray[200],
+  },
+  statusBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 6,
-    gap: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 12,
+    gap: 4,
   },
-  workerAvatar: {
+  statusBadgeText: {
+    fontSize: 10,
+    fontWeight: TYPOGRAPHY.weights.semibold,
+  },
+  timeText: {
+    fontSize: TYPOGRAPHY.sizes.xs,
+    color: COLORS.gray[400],
+    marginLeft: 'auto',
+  },
+
+  // Hired Preview
+  hiredPreview: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: SPACING.sm,
+    gap: SPACING.sm,
+  },
+  avatarRow: {
+    flexDirection: 'row',
+  },
+  avatar: {
     width: 28,
     height: 28,
     borderRadius: 14,
     backgroundColor: COLORS.employer.primary,
-    alignItems: 'center',
     justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: COLORS.white,
   },
-  workerAvatarText: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: 'white',
-  },
-  hiredWorkerName: {
-    flex: 1,
-    fontSize: 13,
-    color: '#374151',
-  },
-  workerStatusBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 10,
-  },
-  workerStatusText: {
+  avatarText: {
     fontSize: 10,
-    fontWeight: '600',
+    fontWeight: TYPOGRAPHY.weights.bold,
+    color: COLORS.white,
   },
-  moreWorkersText: {
-    fontSize: 12,
-    color: COLORS.gray[500],
-    marginTop: 4,
-    fontStyle: 'italic',
+  avatarMore: {
+    backgroundColor: COLORS.gray[400],
   },
-  // Job Actions
-  jobActions: {
-    flexDirection: 'row',
-    gap: 10,
+  avatarMoreText: {
+    fontSize: 9,
+    fontWeight: TYPOGRAPHY.weights.bold,
+    color: COLORS.white,
   },
-  actionButton: {
+  hiredLabel: {
+    fontSize: TYPOGRAPHY.sizes.xs,
+    color: COLORS.gray[600],
+  },
+
+  // Actions Row
+  actionsRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: COLORS.employer.bg,
-    paddingHorizontal: 12,
+    justifyContent: 'space-between',
+    paddingTop: SPACING.sm,
+    borderTopWidth: 1,
+    borderTopColor: COLORS.gray[100],
+  },
+  reviewBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: COLORS.employer.primary,
+    paddingHorizontal: SPACING.md,
     paddingVertical: 8,
-    borderRadius: 8,
-    gap: 4,
+    borderRadius: RADIUS.sm,
+    gap: 6,
   },
-  secondaryAction: {
-    backgroundColor: COLORS.status.warning + '20',
+  reviewBtnText: {
+    fontSize: TYPOGRAPHY.sizes.xs,
+    fontWeight: TYPOGRAPHY.weights.semibold,
+    color: COLORS.white,
   },
-  successAction: {
-    backgroundColor: COLORS.status.success + '20',
+  iconBtns: {
+    flexDirection: 'row',
+    gap: SPACING.sm,
+    marginLeft: 'auto',
   },
-  actionButtonText: {
-    fontSize: 12,
-    fontWeight: '500',
-    color: COLORS.employer.primary,
+  iconBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: RADIUS.sm,
+    backgroundColor: COLORS.gray[100],
+    justifyContent: 'center',
+    alignItems: 'center',
   },
+  pauseBtn: {
+    backgroundColor: '#fef3c7',
+  },
+  playBtn: {
+    backgroundColor: COLORS.worker.bg,
+  },
+
   // Empty State
   emptyState: {
     alignItems: 'center',
-    paddingVertical: 60,
-    paddingHorizontal: 40,
+    paddingVertical: SPACING.xxxl * 2,
+    paddingHorizontal: SPACING.xl,
   },
-  emptyStateTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#374151',
-    marginTop: 16,
-    marginBottom: 8,
+  emptyIconContainer: {
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    backgroundColor: COLORS.gray[100],
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: SPACING.lg,
+  },
+  emptyTitle: {
+    fontSize: TYPOGRAPHY.sizes.lg,
+    fontWeight: TYPOGRAPHY.weights.semibold,
+    color: COLORS.gray[900],
+    marginBottom: SPACING.xs,
+  },
+  emptySubtitle: {
+    fontSize: TYPOGRAPHY.sizes.sm,
+    color: COLORS.gray[500],
     textAlign: 'center',
+    marginBottom: SPACING.xl,
   },
-  emptyStateText: {
-    fontSize: 14,
-    color: '#6b7280',
-    textAlign: 'center',
-    lineHeight: 20,
-    marginBottom: 24,
-  },
-  postJobButton: {
+  emptyBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
     backgroundColor: COLORS.employer.primary,
-    paddingHorizontal: 24,
-    paddingVertical: 12,
-    borderRadius: 8,
+    paddingHorizontal: SPACING.xl,
+    paddingVertical: SPACING.md,
+    borderRadius: RADIUS.md,
+    gap: SPACING.sm,
   },
-  postJobButtonText: {
+  emptyBtnText: {
+    fontSize: TYPOGRAPHY.sizes.sm,
+    fontWeight: TYPOGRAPHY.weights.semibold,
     color: COLORS.white,
-    fontSize: 14,
-    fontWeight: '600',
   },
+
   // Modal
   modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
     justifyContent: 'flex-end',
   },
-  modalContent: {
-    backgroundColor: 'white',
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    paddingBottom: 40,
+  modalSheet: {
+    backgroundColor: COLORS.white,
+    borderTopLeftRadius: RADIUS.xl,
+    borderTopRightRadius: RADIUS.xl,
+    paddingHorizontal: SPACING.xl,
+    paddingBottom: SPACING.xxxl + 10,
   },
-  modalHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: 20,
-    borderBottomWidth: 1,
-    borderBottomColor: '#e5e7eb',
+  modalHandle: {
+    width: 40,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: COLORS.gray[300],
+    alignSelf: 'center',
+    marginTop: SPACING.md,
+    marginBottom: SPACING.lg,
   },
   modalTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#1f2937',
+    fontSize: TYPOGRAPHY.sizes.lg,
+    fontWeight: TYPOGRAPHY.weights.bold,
+    color: COLORS.gray[900],
+    textAlign: 'center',
   },
-  modalBody: {
-    paddingHorizontal: 20,
+  modalSubtitle: {
+    fontSize: TYPOGRAPHY.sizes.sm,
+    color: COLORS.gray[500],
+    textAlign: 'center',
+    marginTop: 4,
+    marginBottom: SPACING.lg,
   },
-  modalJobTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#374151',
-    paddingVertical: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f3f4f6',
-    marginBottom: 8,
+  modalActions: {
+    gap: SPACING.xs,
   },
   modalAction: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 16,
-    gap: 12,
+    paddingVertical: SPACING.md,
+    paddingHorizontal: SPACING.sm,
+    borderRadius: RADIUS.md,
+    backgroundColor: COLORS.gray[50],
   },
-  deleteAction: {
-    borderTopWidth: 1,
-    borderTopColor: '#f3f4f6',
-    marginTop: 8,
+  modalActionDanger: {
+    marginTop: SPACING.sm,
+  },
+  modalActionIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: RADIUS.md,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: SPACING.md,
+  },
+  modalActionContent: {
+    flex: 1,
   },
   modalActionText: {
-    fontSize: 16,
-    color: '#374151',
+    fontSize: TYPOGRAPHY.sizes.base,
+    fontWeight: TYPOGRAPHY.weights.medium,
+    color: COLORS.gray[900],
+  },
+  modalActionHint: {
+    fontSize: TYPOGRAPHY.sizes.xs,
+    color: COLORS.gray[500],
+    marginTop: 2,
+  },
+  cancelBtn: {
+    backgroundColor: COLORS.gray[100],
+    paddingVertical: SPACING.md,
+    borderRadius: RADIUS.md,
+    marginTop: SPACING.lg,
+    alignItems: 'center',
+  },
+  cancelBtnText: {
+    fontSize: TYPOGRAPHY.sizes.base,
+    fontWeight: TYPOGRAPHY.weights.semibold,
+    color: COLORS.gray[700],
   },
 });

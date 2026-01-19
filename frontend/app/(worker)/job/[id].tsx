@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -15,6 +15,70 @@ import { Ionicons } from '@expo/vector-icons';
 import { COLORS, SPACING, TYPOGRAPHY, RADIUS, SHADOWS } from '../../../constants/theme';
 import { getJobById } from '../../../services/jobService';
 import { applyForJob, getMyApplications } from '../../../services/applicationService';
+import { getOrCreateConversation } from '../../../services/messageService';
+import * as Speech from 'expo-speech';
+
+// Format time ago helper
+const formatTimeAgo = (dateString: string) => {
+  if (!dateString) return 'Recently';
+  
+  const date = new Date(dateString);
+  const now = new Date();
+  const diffMs = now.getTime() - date.getTime();
+  const diffMins = Math.floor(diffMs / 60000);
+  const diffHours = Math.floor(diffMs / 3600000);
+  const diffDays = Math.floor(diffMs / 86400000);
+
+  if (diffMins < 1) return 'Just now';
+  if (diffMins < 60) return `${diffMins}m ago`;
+  if (diffHours < 24) return `${diffHours}h ago`;
+  if (diffDays < 7) return `${diffDays}d ago`;
+  return date.toLocaleDateString();
+};
+
+// Format date for display
+const formatPostedDate = (dateString: string) => {
+  if (!dateString) return 'N/A';
+  const date = new Date(dateString);
+  return date.toLocaleDateString('en-IN', { 
+    day: 'numeric', 
+    month: 'short', 
+    year: 'numeric' 
+  });
+};
+
+// Format scheduled time for display (convert 24h to 12h format)
+const formatScheduledTime = (startTime: string, endTime: string) => {
+  if (!startTime || !endTime) return 'Flexible';
+  
+  const formatTime = (time: string) => {
+    const [hours, minutes] = time.split(':');
+    const h = parseInt(hours);
+    const ampm = h >= 12 ? 'PM' : 'AM';
+    const hour12 = h % 12 || 12;
+    return `${hour12}:${minutes} ${ampm}`;
+  };
+  
+  return `${formatTime(startTime)} - ${formatTime(endTime)}`;
+};
+
+// Format scheduled date for display
+const formatScheduledDate = (dateString: string) => {
+  if (!dateString) return 'Flexible';
+  const date = new Date(dateString);
+  const today = new Date();
+  const tomorrow = new Date(today);
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  
+  date.setHours(0, 0, 0, 0);
+  today.setHours(0, 0, 0, 0);
+  tomorrow.setHours(0, 0, 0, 0);
+  
+  if (date.getTime() === today.getTime()) return 'Today';
+  if (date.getTime() === tomorrow.getTime()) return 'Tomorrow';
+  
+  return date.toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short' });
+};
 
 export default function JobDetails() {
   const { id } = useLocalSearchParams();
@@ -25,6 +89,7 @@ export default function JobDetails() {
   const [job, setJob] = useState<any>(null);
   const [hasApplied, setHasApplied] = useState(false);
   const [applicationStatus, setApplicationStatus] = useState<string | null>(null);
+  const audioTimeoutRef = useRef<any>(null);
 
   useEffect(() => {
     fetchJobDetails();
@@ -52,15 +117,21 @@ export default function JobDetails() {
         company: 'Employer',
         pay: apiJob.wage,
         location: apiJob.address,
-        urgency: 'today',
+        urgency: apiJob.scheduled_date ? 'scheduled' : 'flexible',
         rating: 4.5,
         requirements: [],
         benefits: [],
-        workingHours: '9:00 AM - 6:00 PM',
+        workingHours: formatScheduledTime(apiJob.scheduled_start_time, apiJob.scheduled_end_time),
         employerName: 'Employer',
         employerRating: 4.5,
         employerJobs: 0,
         jobType: 'One-time',
+        created_at: apiJob.created_at,
+        postedTime: formatTimeAgo(apiJob.created_at),
+        postedDate: formatPostedDate(apiJob.created_at),
+        scheduledDate: apiJob.scheduled_date,
+        scheduledDateDisplay: formatScheduledDate(apiJob.scheduled_date),
+        employer_id: apiJob.employer_id, // Preserve employer_id for messaging
       });
     } catch (error) {
       console.error('Error fetching job details:', error);
@@ -95,24 +166,61 @@ export default function JobDetails() {
     );
   }
 
-  const getUrgencyConfig = (urgency: string) => {
+  const getUrgencyConfig = (urgency: string, scheduledDateDisplay?: string) => {
     switch (urgency) {
       case 'immediate':
         return { text: '🔥 URGENT', color: COLORS.status.error, bg: '#fef2f2' };
       case 'today':
-        return { text: 'Today', color: COLORS.status.warning, bg: '#fef3c7' };
+        return { text: '📅 Today', color: COLORS.status.warning, bg: '#fef3c7' };
+      case 'tomorrow':
+        return { text: '📅 Tomorrow', color: COLORS.status.info, bg: '#dbeafe' };
+      case 'scheduled':
+        return { text: `📅 ${scheduledDateDisplay || 'Scheduled'}`, color: COLORS.status.info, bg: '#dbeafe' };
+      case 'flexible':
+        return { text: 'Flexible Schedule', color: COLORS.gray[600], bg: COLORS.gray[100] };
       default:
-        return { text: 'Tomorrow', color: COLORS.status.info, bg: '#dbeafe' };
+        return { text: scheduledDateDisplay || 'Flexible', color: COLORS.gray[600], bg: COLORS.gray[100] };
     }
   };
 
-  const urgencyConfig = getUrgencyConfig(job.urgency || 'today');
+  const urgencyConfig = getUrgencyConfig(job.urgency, job.scheduledDateDisplay);
 
-  const handlePlayAudio = () => {
-    setIsAudioPlaying(true);
-    setTimeout(() => {
+  const handlePlayAudio = async () => {
+    if (isAudioPlaying) {
+      // Stop playing
+      Speech.stop();
       setIsAudioPlaying(false);
-    }, 3000);
+      return;
+    }
+
+    // Create job description text for TTS
+    const jobText = `
+      Job Title: ${job.title}.
+      Pay: ${job.pay} rupees per day.
+      Location: ${job.location || 'Location not specified'}.
+      Working Hours: ${job.workingHours || 'Flexible'}.
+      ${job.scheduledDateDisplay ? `Scheduled for: ${job.scheduledDateDisplay}.` : ''}
+      Description: ${job.description || 'No description provided'}.
+      ${job.requirements?.length > 0 ? `Requirements: ${job.requirements.join('. ')}` : ''}
+    `.replace(/\s+/g, ' ').trim();
+
+    setIsAudioPlaying(true);
+    
+    try {
+      await Speech.speak(jobText, {
+        language: 'en-IN',
+        pitch: 1.0,
+        rate: 0.9,
+        onDone: () => setIsAudioPlaying(false),
+        onError: () => {
+          setIsAudioPlaying(false);
+          Alert.alert('Error', 'Failed to play audio. Please try again.');
+        },
+      });
+    } catch (error) {
+      setIsAudioPlaying(false);
+      Alert.alert('Error', 'Text-to-speech is not available on this device.');
+    }
   };
 
   const handleApply = async () => {
@@ -178,8 +286,31 @@ export default function JobDetails() {
     ]);
   };
 
-  const handleMessage = () => {
-    router.push(`/(worker)/chat/${id}`);
+  const [isCreatingChat, setIsCreatingChat] = useState(false);
+
+  const handleMessage = async () => {
+    if (!job?.employer_id) {
+      Alert.alert('Error', 'Unable to message employer. Please try again.');
+      return;
+    }
+
+    try {
+      setIsCreatingChat(true);
+      // Create or get existing conversation with the employer for this job
+      const conversation = await getOrCreateConversation(
+        job.employer_id,
+        'EMPLOYER',
+        id as string
+      );
+      
+      // Navigate to chat with the conversation ID
+      router.push(`/(worker)/chat/${conversation.id}`);
+    } catch (error) {
+      console.error('Error creating conversation:', error);
+      Alert.alert('Error', 'Failed to start conversation. Please try again.');
+    } finally {
+      setIsCreatingChat(false);
+    }
   };
 
   const handleSave = () => {
@@ -253,8 +384,8 @@ export default function JobDetails() {
             </View>
             <View style={styles.infoDivider} />
             <View style={styles.infoItem}>
-              <Ionicons name="star" size={16} color="#f59e0b" />
-              <Text style={styles.infoText}>{job.rating}</Text>
+              <Ionicons name="calendar-outline" size={16} color={COLORS.gray[500]} />
+              <Text style={styles.infoText}>{job.postedTime || 'Recently'}</Text>
             </View>
           </View>
         </View>
@@ -345,8 +476,8 @@ export default function JobDetails() {
             </View>
             <View style={styles.detailItem}>
               <Ionicons name="calendar-outline" size={24} color={COLORS.gray[400]} />
-              <Text style={styles.detailLabel}>Job Type</Text>
-              <Text style={styles.detailValue}>{job.jobType}</Text>
+              <Text style={styles.detailLabel}>Scheduled Date</Text>
+              <Text style={styles.detailValue}>{job.scheduledDate ? formatPostedDate(job.scheduledDate) : job.jobType}</Text>
             </View>
             <View style={styles.detailItem}>
               <Ionicons name="location-outline" size={24} color={COLORS.gray[400]} />
@@ -354,9 +485,9 @@ export default function JobDetails() {
               <Text style={styles.detailValue}>{job.location}</Text>
             </View>
             <View style={styles.detailItem}>
-              <Ionicons name="pricetag-outline" size={24} color={COLORS.gray[400]} />
-              <Text style={styles.detailLabel}>Category</Text>
-              <Text style={styles.detailValue}>{job.category}</Text>
+              <Ionicons name="newspaper-outline" size={24} color={COLORS.gray[400]} />
+              <Text style={styles.detailLabel}>Posted On</Text>
+              <Text style={styles.detailValue}>{job.postedDate}</Text>
             </View>
           </View>
         </View>
@@ -368,18 +499,33 @@ export default function JobDetails() {
       {/* Bottom Action Bar */}
       <View style={styles.bottomBar}>
         <TouchableOpacity 
-          style={styles.messageButton}
+          style={[styles.messageButton, isCreatingChat && { opacity: 0.5 }]}
           onPress={handleMessage}
+          disabled={isCreatingChat}
         >
-          <Ionicons name="chatbubble-outline" size={24} color={COLORS.worker.primary} />
+          {isCreatingChat ? (
+            <ActivityIndicator size="small" color={COLORS.worker.primary} />
+          ) : (
+            <Ionicons name="chatbubble-outline" size={24} color={COLORS.worker.primary} />
+          )}
         </TouchableOpacity>
-        <TouchableOpacity 
-          style={styles.applyButton}
-          onPress={handleApply}
-        >
-          <Text style={styles.applyButtonText}>Apply Now</Text>
-          <Ionicons name="arrow-forward" size={20} color={COLORS.white} />
-        </TouchableOpacity>
+        {hasApplied ? (
+          <View style={styles.appliedBadge}>
+            <Ionicons name="checkmark-circle" size={20} color={COLORS.white} />
+            <Text style={styles.appliedBadgeText}>
+              {applicationStatus === 'accepted' ? 'Accepted' : 
+               applicationStatus === 'rejected' ? 'Rejected' : 'Applied'}
+            </Text>
+          </View>
+        ) : (
+          <TouchableOpacity 
+            style={styles.applyButton}
+            onPress={handleApply}
+          >
+            <Text style={styles.applyButtonText}>Apply Now</Text>
+            <Ionicons name="arrow-forward" size={20} color={COLORS.white} />
+          </TouchableOpacity>
+        )}
       </View>
     </SafeAreaView>
   );
@@ -680,6 +826,21 @@ const styles = StyleSheet.create({
     gap: SPACING.sm,
   },
   applyButtonText: {
+    fontSize: TYPOGRAPHY.sizes.lg,
+    fontWeight: TYPOGRAPHY.weights.bold,
+    color: COLORS.white,
+  },
+  appliedBadge: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: COLORS.status.success,
+    paddingVertical: SPACING.lg,
+    borderRadius: RADIUS.lg,
+    gap: SPACING.sm,
+  },
+  appliedBadgeText: {
     fontSize: TYPOGRAPHY.sizes.lg,
     fontWeight: TYPOGRAPHY.weights.bold,
     color: COLORS.white,
