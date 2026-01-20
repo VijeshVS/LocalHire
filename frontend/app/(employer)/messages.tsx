@@ -149,9 +149,14 @@ export default function EmployerMessagesScreen() {
           <Ionicons name="arrow-back" size={24} color={COLORS.gray[900]} />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Messages</Text>
-        <TouchableOpacity style={styles.headerAction}>
-          <Ionicons name="search-outline" size={24} color={COLORS.gray[700]} />
-        </TouchableOpacity>
+        <View style={{ flexDirection: 'row', gap: SPACING.sm }}>
+          <TouchableOpacity style={styles.headerAction} onPress={onRefresh}>
+            <Ionicons name="refresh-outline" size={24} color={COLORS.gray[700]} />
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.headerAction}>
+            <Ionicons name="search-outline" size={24} color={COLORS.gray[700]} />
+          </TouchableOpacity>
+        </View>
       </View>
 
       {/* Conversations List */}

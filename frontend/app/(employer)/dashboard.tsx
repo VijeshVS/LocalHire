@@ -205,7 +205,10 @@ export default function EmployerDashboard() {
           <Text style={styles.subGreeting}>Manage your workforce</Text>
         </View>
         <View style={styles.headerActions}>
-          <TouchableOpacity style={styles.iconButton}>
+          <TouchableOpacity 
+            style={styles.iconButton}
+            onPress={() => router.push('/(employer)/notifications')}
+          >
             <Ionicons name="notifications-outline" size={24} color={COLORS.gray[700]} />
             <View style={styles.badge}>
               <Text style={styles.badgeText}>2</Text>
@@ -265,17 +268,7 @@ export default function EmployerDashboard() {
             <Text style={styles.actionText}>View Candidates</Text>
           </TouchableOpacity>
 
-          <TouchableOpacity 
-            style={styles.actionButton}
-            onPress={() => router.push('/(employer)/fast-hire')}
-          >
-            <View style={[styles.actionIcon, { backgroundColor: '#fef3c7' }]}>
-              <Ionicons name="search" size={28} color={COLORS.status.warning} />
-            </View>
-            <Text style={styles.actionText}>Find Workers</Text>
-          </TouchableOpacity>
-
-          {/* New FastHire Button */}
+          {/* FastHire Button */}
           <TouchableOpacity
             style={styles.actionButton}
             onPress={() => router.push('/(employer)/fast-hire')}

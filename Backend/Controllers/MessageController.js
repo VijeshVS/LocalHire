@@ -85,19 +85,25 @@ exports.getConversations = async (req, res) => {
         // Get other user details
         let otherUser = null;
         if (otherRole === "EMPLOYER") {
-          const { data: employer } = await supabase
+          const { data: employer, error: empError } = await supabase
             .from("employers")
             .select("id, name, email, company_name")
             .eq("id", otherId)
             .single();
-          otherUser = employer;
+          if (empError) {
+            console.error("Error fetching employer:", empError);
+          }
+          otherUser = employer || { id: otherId, name: 'Employer', company_name: null };
         } else {
-          const { data: employee } = await supabase
+          const { data: employee, error: empError } = await supabase
             .from("employees")
             .select("id, name, email")
             .eq("id", otherId)
             .single();
-          otherUser = employee;
+          if (empError) {
+            console.error("Error fetching employee:", empError);
+          }
+          otherUser = employee || { id: otherId, name: 'Worker' };
         }
 
         // Get job details if linked

@@ -119,6 +119,12 @@ export default function EmployerLayout() {
         }}
       />
       <Tabs.Screen
+        name="notifications"
+        options={{
+          href: null,
+        }}
+      />
+      <Tabs.Screen
         name="chat/[id]"
         options={{
           href: null,

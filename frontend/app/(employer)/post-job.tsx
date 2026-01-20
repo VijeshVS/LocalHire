@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -13,7 +13,7 @@ import {
   Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { COLORS, SPACING, TYPOGRAPHY, RADIUS, SHADOWS } from '../../constants/theme';
 import { createJob } from '../../services/jobService';
@@ -74,6 +74,29 @@ export default function PostJobScreen() {
   const updateFormData = (field: string, value: any) => {
     setFormData(prev => ({ ...prev, [field]: value }));
   };
+
+  // Reset form when screen comes into focus
+  useFocusEffect(
+    useCallback(() => {
+      setCurrentStep(1);
+      setFormData({
+        title: '',
+        category: '',
+        description: '',
+        location: '',
+        latitude: null,
+        longitude: null,
+        pay: '',
+        urgency: '',
+        duration: '',
+        workersNeeded: '1',
+        scheduled_date: '',
+        start_time: '',
+        end_time: '',
+      });
+      setShowAllCategories(false);
+    }, [])
+  );
 
   // Get current location
   const getCurrentLocation = async () => {
@@ -626,9 +649,9 @@ export default function PostJobScreen() {
       {renderProgressBar()}
 
       <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         style={{ flex: 1 }}
-        keyboardVerticalOffset={100}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
       >
         {/* Step Content */}
         <ScrollView

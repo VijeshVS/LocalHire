@@ -45,7 +45,16 @@ export default function WorkerMessages() {
       const data = await getConversations();
       const formatted = data.map((conv: any) => {
         const otherUser = conv.other_user;
-        const name = otherUser?.company_name || otherUser?.name || 'Unknown';
+        // For employers, prefer company_name, fall back to name
+        // For workers, use name directly
+        let name = 'Unknown';
+        if (otherUser) {
+          if (conv.other_user_role === 'EMPLOYER') {
+            name = otherUser.company_name || otherUser.name || 'Employer';
+          } else {
+            name = otherUser.name || 'Worker';
+          }
+        }
         return {
           id: conv.id,
           name: name,
