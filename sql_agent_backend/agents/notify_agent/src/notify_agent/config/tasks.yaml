@@ -3,48 +3,57 @@ query_task:
     Based on the job description, generate the SQL query which returns the list of employees.
 
     Job Description: {input}
-    Job Location: {lat} Latitude, {long} Longitude  
 
-    IMPORTANT RULES:
-    - Before executing any SQL queries, ensure you fully understand which tables are available. If needed, obtain the table schema for additional context using the provided tools.
+    Job Location: {lat} Latitude, {long} Longitude
 
-    - When applying filters using WHERE, IN, or LIKE, the agent must not assume or invent filter 
-    keywords directly from the user's text. Instead, it must:
-      1. Identify all distinct values from the relevant column(s) in the database (e.g., SELECT DISTINCT column FROM table).
-      2. Determine which of these values are semantically closest to the user's request (based on meaning, not substring matching).
-      3. Apply the filter only using those existing distinct values, not fabricated or guessed ones.
-      4. If no semantically relevant values exist, the agent must not apply a meaningless filter — instead, it 
-      should return results unfiltered.
+    IMPORTANT RULES (These steps must not be skipped):
 
-      Semantic Filtering Example — Construction-Related Workers
-      User Request: I need construction related workers.
+    1. First understand the job description requirements carefully. Understand what kind of employees are needed.
 
-      **Required Behavior:**
-      1. Retrieve distinct values from the relevant column (example: employee.job_role):
-      - Project Manager
-      - Construction Manager (Site Manager)
-      - Site Supervisor
-      - General Contractor
-      - ...any other roles present in the database
-      2. Determine which of these values are semantically related to construction.
-      3. Apply filtering **only** using the semantically matched existing values.
+    2. Before executing any SQL queries, you must fully understand which tables are available using list_tables tool.
 
-      **Critical Rule:**
-      - The filter must use **only actual distinct values** already present in the database.
-      - Never invent or assume keywords that do not exist in the column.
+    3. Before querying any table first fully understand the schema of the table using get_table_schema tool.
 
-    - When querying through the tool to explore or retrieve employee records, *strictly* you must always apply 
+    4. (Important Step) When applying filters using WHERE, IN, or LIKE, the agent must not 
+    assume or invent filter keywords directly from the user's text. Instead, it must:
+
+      4a. Identify all distinct values from the relevant column(s) in the database 
+      (e.g., SELECT DISTINCT column FROM table).
+      
+      4b. Determine which of these values are semantically closest to the user's 
+      request (based on meaning, not substring matching).
+      
+      4c. Apply the filter only using those existing distinct values, not fabricated 
+      or guessed ones.
+      
+      4d. The filter must use only actual distinct values already present in the database.
+      
+      4e. Never invent or assume keywords that do not exist in the column.
+      
+      4f. All keyword filtering must be case-sensitive.
+
+      4g. After identifying the set of semantically closest distinct values for each relevant column (as per 4a to 4f), the final SQL query must apply all identified values for their respective columns.
+
+    5. When querying through the tool to explore or retrieve employee table records, strictly you must always apply 
     LIMIT <= 15 to prevent fetching excessive data.
     
-    - If the job description doesn't specify the radius within which it needs employees, *strictly*
+    6. Please note that LIMIT should be used only when exploring or retrieving records from the employee table. You can
+    retrieve information from other tables without applying any LIMIT.
+
+    7. If the job description doesn't specify the radius within which it needs employees, strictly
     filter employees within 10km of the job location given.
 
-    The query must be strictly read-only — no INSERT, UPDATE, DELETE, TRUNCATE, or any operation 
+    8. The query must be strictly read-only — no INSERT, UPDATE, DELETE, TRUNCATE, or any operation 
     that modifies data. Only retrieval is allowed.
   expected_output: >
-    Output SQL query to get the id, name, email, phone, years_of_experience, 
+    Strictly output SQL query to get the id, name, email, phone, years_of_experience, 
     language, status, rating, location, distance_m from the employees table.
+
     distance_m is the calculated distance in meters from the job location to the employee location.
+
+    Do not include any newline characters, escape sequences (such as \n or \t), extra whitespace, formatting characters, 
+    comments, or explanatory text in final sql query.
+
     Do not provide any explanation or additional text, output only the SQL query.
   agent: query_agent
   output_file: output.txt

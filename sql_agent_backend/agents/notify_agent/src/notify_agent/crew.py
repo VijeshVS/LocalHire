@@ -16,7 +16,9 @@ class NotifyAgent():
         return Agent(
             config=self.agents_config['query_agent'], # type: ignore[index]
             tools = [ExecuteSQLTool(),GetTableSchemaTool(),ListTablesTool()],
-            verbose=True
+            verbose=True,
+            reasoning=True,  
+            max_reasoning_attempts=3
         )
 
     @task
@@ -34,6 +36,7 @@ class NotifyAgent():
             tasks=self.tasks, # Automatically created by the @task decorator
             process=Process.sequential,
             verbose=True,
+            tracing=True,
             memory=True,
-            tracing=True
+            planning=True
         )

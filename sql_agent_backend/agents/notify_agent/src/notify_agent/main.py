@@ -58,9 +58,6 @@ def run():
 
     try:
         crew = NotifyAgent().crew()
-        crew.reset_memories(command_type='short')     # Short-term memory
-        crew.reset_memories(command_type='long')      # Long-term memory
-        crew.reset_memories(command_type='entity')    # Entity memory
         crew.kickoff(inputs=inputs)
         execute_sql_without_limit(str(OUTPUT_FILE),str(OUTPUT_FILE),supabase)
     except Exception as e:
