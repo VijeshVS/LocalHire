@@ -47,7 +47,7 @@ query_task:
     that modifies data. Only retrieval is allowed.
   expected_output: >
     Strictly output SQL query to get the id, name, email, phone, years_of_experience, 
-    language, status, rating, location, distance_m from the employees table.
+    language, rating, location, distance_m from the employees table.
 
     distance_m is the calculated distance in meters from the job location to the employee location.
 

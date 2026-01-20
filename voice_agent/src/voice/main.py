@@ -93,7 +93,7 @@ def save_db(language: str, skills_id: list):
     """
 
     response = (
-        supabase.rpc("execute_sql", {"query": SQL_QUERY}).execute()
+        supabase.rpc("run_sql", {"query": SQL_QUERY}).execute()
     )
 
     for skill_id in skills_id:
@@ -137,8 +137,8 @@ def run():
     Run the crew.
     """
 
-    language_choices = {"1": "English", "2": "Kannada", "3": "Hindi"}
-    choice = input("Enter 1 for English, 2 for Kannada, or 3 for Hindi: ").strip()
+    language_choices = {"1": "English", "2": "Kannada", "3": "Hindi", "4": "Telugu", "5": "Tamil"}
+    choice = input("Enter 1 for English, 2 for Kannada, or 3 for Hindi or 4 for Telugu or 5 for Tamil: ").strip()
     inputs = {"language": language_choices.get(choice, "English")}
 
     try:
