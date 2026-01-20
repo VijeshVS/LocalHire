@@ -1,8 +1,12 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 import subprocess
 import os
 import json
+import asyncio
+import time
+from typing import List
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 from supabase import create_client, Client
@@ -29,6 +33,9 @@ AGENTS_DIR = os.path.abspath("./agents")
 SQL_BASE_DIR = os.path.join(AGENTS_DIR, "notify_agent")
 SQL_INPUT_FILE = os.path.join(SQL_BASE_DIR, "input.json")
 SQL_OUTPUT_FILE = os.path.join(SQL_BASE_DIR, "output.txt")
+
+# SSE clients list
+clients: List[asyncio.Queue] = []
 
 class CompleteRequest(BaseModel):
     input: str
@@ -93,3 +100,44 @@ def complete(req: CompleteRequest):
     with open(SQL_OUTPUT_FILE, "r") as f:
         content = f.read()
         return {"result": content if content != "null" else [] }
+
+
+@app.get("/events")
+async def events(request: Request):
+    """SSE endpoint for real-time event streaming"""
+    queue = asyncio.Queue()
+    clients.append(queue)
+
+    async def event_generator():
+        try:
+            while True:
+                if await request.is_disconnected():
+                    print("❌ Client disconnected")
+                    break
+
+                event = await queue.get()
+
+                payload = f"data: {json.dumps(event)}\n\n"
+
+                # ✅ LOG EXACTLY WHEN YOU SEND
+                print(f"📤 [{time.strftime('%H:%M:%S')}] Sent event → {event}", flush=True)
+
+                yield payload
+
+        finally:
+            clients.remove(queue)
+            print("🧹 Client queue removed", flush=True)
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream"
+    )
+
+
+@app.post("/emit")
+async def emit(event: dict):
+    """Emit event to all connected SSE clients"""
+    for queue in clients:
+        await queue.put(event)
+
+    return {"status": "ok"}
