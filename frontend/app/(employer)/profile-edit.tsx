@@ -13,15 +13,19 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
+import * as Location from 'expo-location';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import Icon from '../../components/Icon';
 import { COLORS, SPACING, TYPOGRAPHY, RADIUS, SHADOWS } from '../../constants/theme';
 import { useAuth } from '../../context/AuthContext';
 import { getEmployerProfile, updateEmployerProfile } from '../../services/profileService';
+import { API_BASE_URL } from '../../services/api';
 
 export default function EmployerProfileEdit() {
   const { user } = useAuth();
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+  const [isUpdatingLocation, setIsUpdatingLocation] = useState(false);
   const [profile, setProfile] = useState({
     name: '',
     email: '',
@@ -90,6 +94,59 @@ export default function EmployerProfileEdit() {
       Alert.alert('Error', error.message || 'Failed to update profile');
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  const handleUpdateLocation = async () => {
+    setIsUpdatingLocation(true);
+    let token: string | null = null;
+    try {
+      // Get token from AsyncStorage
+      token = await AsyncStorage.getItem('auth_token');
+      if (!token) {
+        Alert.alert('Error', 'Authentication token not found. Please login again.');
+        return;
+      }
+
+      // Request location permissions
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permission Denied', 'Location permission is required to update your location');
+        return;
+      }
+
+      // Get current location
+      const location = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.Balanced,
+      });
+
+      // Send location to backend
+      const response = await fetch(`${API_BASE_URL}/employer/update`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          location: {
+            latitude: location.coords.latitude,
+            longitude: location.coords.longitude,
+          },
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to update location');
+      }
+
+      Alert.alert('Success', 'Location updated successfully!');
+    } catch (error: any) {
+      console.error('Update location error:', error);
+      Alert.alert('Error', error.message || 'Failed to update location');
+    } finally {
+      setIsUpdatingLocation(false);
     }
   };
 
@@ -226,6 +283,22 @@ export default function EmployerProfileEdit() {
                 numberOfLines={3}
               />
             </View>
+
+            {/* Update Location Button */}
+            <TouchableOpacity
+              style={styles.updateLocationButton}
+              onPress={handleUpdateLocation}
+              disabled={isUpdatingLocation}
+            >
+              {isUpdatingLocation ? (
+                <ActivityIndicator size="small" color={COLORS.white} />
+              ) : (
+                <>
+                  <Icon name="location-on" size={20} color={COLORS.white} />
+                  <Text style={styles.updateLocationText}>Update Location</Text>
+                </>
+              )}
+            </TouchableOpacity>
           </View>
 
           <View style={{ height: 50 }} />
@@ -346,5 +419,22 @@ const styles = StyleSheet.create({
     fontSize: TYPOGRAPHY.sizes.xs,
     color: COLORS.gray[500],
     marginTop: SPACING.xs,
+  },
+  updateLocationButton: {
+    flexDirection: 'row',
+    backgroundColor: COLORS.employer.primary,
+    paddingVertical: SPACING.md,
+    paddingHorizontal: SPACING.lg,
+    borderRadius: RADIUS.lg,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: SPACING.sm,
+    marginTop: SPACING.md,
+    ...SHADOWS.sm,
+  },
+  updateLocationText: {
+    color: COLORS.white,
+    fontSize: TYPOGRAPHY.sizes.base,
+    fontWeight: TYPOGRAPHY.weights.semibold,
   },
 });
