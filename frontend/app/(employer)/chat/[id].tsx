@@ -33,6 +33,7 @@ export default function EmployerChatScreen() {
   const [inputText, setInputText] = useState('');
   const [isTyping, setIsTyping] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const flatListRef = useRef<FlatList>(null);
 
@@ -91,6 +92,34 @@ export default function EmployerChatScreen() {
       flatListRef.current?.scrollToEnd({ animated: true });
     }, 100);
   }, [messages]);
+
+  const handleRefresh = async () => {
+    if (isRefreshing) return;
+    
+    try {
+      setIsRefreshing(true);
+      const conversationId = Array.isArray(id) ? id[0] : id;
+      const msgs = await getMessages(conversationId);
+      const userId = await AsyncStorage.getItem('user_id');
+      
+      const formattedMsgs = msgs.map((msg: any) => ({
+        id: msg.id,
+        text: msg.text,
+        sender: msg.sender_id === userId ? 'employer' : 'worker',
+        timestamp: new Date(msg.created_at).toLocaleTimeString('en-US', { 
+          hour: 'numeric', 
+          minute: '2-digit',
+          hour12: true 
+        }),
+        read: msg.is_read,
+      }));
+      setMessages(formattedMsgs);
+    } catch (error) {
+      console.error('Error refreshing messages:', error);
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
 
   const handleSend = async () => {
     if (inputText.trim().length === 0) return;
@@ -219,6 +248,18 @@ export default function EmployerChatScreen() {
         </TouchableOpacity>
 
         <View style={styles.headerActions}>
+          <TouchableOpacity 
+            style={styles.headerButton}
+            onPress={handleRefresh}
+            disabled={isRefreshing}
+          >
+            <Ionicons 
+              name="refresh-outline" 
+              size={22} 
+              color={isRefreshing ? COLORS.gray[400] : COLORS.gray[700]} 
+              style={isRefreshing ? styles.refreshing : undefined}
+            />
+          </TouchableOpacity>
           <TouchableOpacity style={styles.headerButton}>
             <Ionicons name="call-outline" size={22} color={COLORS.gray[700]} />
           </TouchableOpacity>
@@ -365,6 +406,9 @@ const styles = StyleSheet.create({
     height: 40,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  refreshing: {
+    transform: [{ rotate: '180deg' }],
   },
   contextBanner: {
     flexDirection: 'row',

@@ -40,11 +40,19 @@ export default function Candidates() {
   const [workerRating, setWorkerRating] = useState(0);
   const [workerReview, setWorkerReview] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [jobTitle, setJobTitle] = useState<string>('');
 
   useEffect(() => {
     fetchCandidates();
   }, [jobId]);
+
+  const handleRefresh = async () => {
+    if (isRefreshing) return;
+    setIsRefreshing(true);
+    await fetchCandidates();
+    setIsRefreshing(false);
+  };
 
   const fetchCandidates = async () => {
     try {
@@ -468,9 +476,23 @@ export default function Candidates() {
           <Text style={styles.headerTitle}>Candidates</Text>
           {jobTitle ? <Text style={styles.headerSubtitle} numberOfLines={1}>{jobTitle}</Text> : null}
         </View>
-        <TouchableOpacity>
-          <Ionicons name="filter-outline" size={24} color={COLORS.gray[800]} />
-        </TouchableOpacity>
+        <View style={styles.headerActions}>
+          <TouchableOpacity 
+            onPress={handleRefresh}
+            disabled={isRefreshing}
+            style={styles.headerActionButton}
+          >
+            <Ionicons 
+              name="refresh-outline" 
+              size={24} 
+              color={isRefreshing ? COLORS.gray[400] : COLORS.gray[800]} 
+              style={isRefreshing ? styles.refreshing : undefined}
+            />
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.headerActionButton}>
+            <Ionicons name="filter-outline" size={24} color={COLORS.gray[800]} />
+          </TouchableOpacity>
+        </View>
       </View>
 
       {/* Filter Tabs */}
@@ -744,6 +766,19 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: COLORS.gray[500],
     marginTop: 2,
+  },
+  headerActions: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  headerActionButton: {
+    width: 40,
+    height: 40,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  refreshing: {
+    transform: [{ rotate: '180deg' }],
   },
   filterContainer: {
     backgroundColor: 'white',

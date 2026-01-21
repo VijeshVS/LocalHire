@@ -78,6 +78,13 @@ export default function MyJobsScreen() {
     setIsRefreshing(false);
   };
 
+  const handleRefresh = async () => {
+    if (isRefreshing) return;
+    setIsRefreshing(true);
+    await loadData();
+    setIsRefreshing(false);
+  };
+
   // Helper function to convert time string (HH:MM or HH:MM:SS) to minutes for comparison
   const timeToMinutes = (timeStr: string | null | undefined): number => {
     if (!timeStr || typeof timeStr !== 'string') return -1;
@@ -639,7 +646,18 @@ export default function MyJobsScreen() {
           <Ionicons name="arrow-back" size={24} color={COLORS.gray[900]} />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>My Jobs</Text>
-        <View style={{ width: 24 }} />
+        <TouchableOpacity 
+          onPress={handleRefresh}
+          disabled={isRefreshing}
+          style={styles.refreshButton}
+        >
+          <Ionicons 
+            name="refresh-outline" 
+            size={24} 
+            color={isRefreshing ? COLORS.gray[400] : COLORS.gray[900]} 
+            style={isRefreshing ? styles.refreshing : undefined}
+          />
+        </TouchableOpacity>
       </View>
 
       {/* Tabs */}
@@ -848,6 +866,15 @@ const styles = StyleSheet.create({
     fontSize: TYPOGRAPHY.sizes.xl,
     fontWeight: TYPOGRAPHY.weights.bold,
     color: COLORS.gray[900],
+  },
+  refreshButton: {
+    width: 40,
+    height: 40,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  refreshing: {
+    transform: [{ rotate: '180deg' }],
   },
   tabScroll: {
     backgroundColor: COLORS.white,

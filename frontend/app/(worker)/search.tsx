@@ -118,6 +118,7 @@ export default function WorkerSearch() {
   const [showFilters, setShowFilters] = useState(false);
   const [searchResults, setSearchResults] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isRefreshingJobs, setIsRefreshingJobs] = useState(false);
   const [userLocation, setUserLocation] = useState<{latitude: number, longitude: number} | null>(null);
   const [locationName, setLocationName] = useState<string>('Getting location...');
 
@@ -162,6 +163,28 @@ export default function WorkerSearch() {
   useEffect(() => {
     getUserLocationAndFetchJobs();
   }, []);
+
+  // Filter out jobs that have passed their scheduled end date and time
+  const isJobExpired = (scheduledDate: string | null | undefined, scheduledEndTime: string | null | undefined): boolean => {
+    // If no date or time, job is flexible/not expired
+    if (!scheduledDate || !scheduledEndTime) return false;
+    
+    try {
+      // Parse the scheduled date and end time
+      const jobDate = new Date(scheduledDate);
+      const [hours, minutes] = scheduledEndTime.split(':').map(Number);
+      
+      // Set the time on the job date
+      jobDate.setHours(hours, minutes, 0, 0);
+      
+      // Compare with current time
+      const now = new Date();
+      return jobDate < now;
+    } catch (error) {
+      // If parsing fails, don't filter out the job
+      return false;
+    }
+  };
 
   const getUserLocationAndFetchJobs = async () => {
     try {
@@ -211,7 +234,12 @@ export default function WorkerSearch() {
       const jobs = await findNearbyJobs(latitude, longitude, 50);
       
       if (jobs && jobs.length > 0) {
-        const formattedJobs = jobs.map((job: any) => ({
+        // Filter out expired jobs first
+        const activeJobs = jobs.filter((job: any) => 
+          !isJobExpired(job.scheduled_date, job.scheduled_end_time)
+        );
+        
+        const formattedJobs = activeJobs.map((job: any) => ({
           id: job.id,
           title: job.title,
           company: 'Employer',
@@ -247,6 +275,22 @@ export default function WorkerSearch() {
     }
   };
 
+  // Handle refresh button click - refresh based on current context
+  const handleRefreshJobs = async () => {
+    if (isRefreshingJobs) return;
+    
+    setIsRefreshingJobs(true);
+    
+    // If there's a search query, re-search; otherwise refresh nearby jobs
+    if (searchQuery.trim()) {
+      await handleSearch();
+    } else {
+      refreshNearbyJobs();
+    }
+    
+    setIsRefreshingJobs(false);
+  };
+
   // Search database when user enters a keyword
   const handleSearch = async () => {
     const query = searchQuery.trim();
@@ -265,7 +309,12 @@ export default function WorkerSearch() {
       const jobs = await searchJobs(query, category);
       
       if (jobs && jobs.length > 0) {
-        const formattedJobs = jobs.map((job: any) => ({
+        // Filter out expired jobs first
+        const activeJobs = jobs.filter((job: any) => 
+          !isJobExpired(job.scheduled_date, job.scheduled_end_time)
+        );
+        
+        const formattedJobs = activeJobs.map((job: any) => ({
           id: job.id,
           title: job.title,
           company: 'Employer',
@@ -396,6 +445,39 @@ export default function WorkerSearch() {
     );
   };
 
+  // Show loading screen on initial load
+  if (isLoading && searchResults.length === 0) {
+    return (
+      <SafeAreaView style={styles.container} edges={['top']}>
+        <StatusBar barStyle="dark-content" backgroundColor={COLORS.white} />
+        
+        {/* Header */}
+        <View style={styles.header}>
+          <Text style={styles.headerTitle}>Find Jobs</Text>
+          <View style={styles.headerActions}>
+            <TouchableOpacity
+              style={styles.refreshButton}
+              disabled
+            >
+              <Ionicons name="refresh-outline" size={24} color={COLORS.gray[400]} />
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.filterButton}
+              disabled
+            >
+              <Ionicons name="options" size={24} color={COLORS.gray[400]} />
+            </TouchableOpacity>
+          </View>
+        </View>
+        
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color={COLORS.worker.primary} />
+          <Text style={styles.loadingText}>Finding jobs near you...</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
       <StatusBar barStyle="dark-content" backgroundColor={COLORS.white} />
@@ -403,12 +485,26 @@ export default function WorkerSearch() {
       {/* Header */}
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Find Jobs</Text>
-        <TouchableOpacity
-          style={styles.filterButton}
-          onPress={() => setShowFilters(!showFilters)}
-        >
-          <Ionicons name="options" size={24} color={COLORS.gray[700]} />
-        </TouchableOpacity>
+        <View style={styles.headerActions}>
+          <TouchableOpacity
+            style={styles.refreshButton}
+            onPress={handleRefreshJobs}
+            disabled={isRefreshingJobs}
+          >
+            <Ionicons 
+              name="refresh-outline" 
+              size={24} 
+              color={isRefreshingJobs ? COLORS.gray[400] : COLORS.gray[700]} 
+              style={isRefreshingJobs ? styles.refreshing : undefined}
+            />
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.filterButton}
+            onPress={() => setShowFilters(!showFilters)}
+          >
+            <Ionicons name="options" size={24} color={COLORS.gray[700]} />
+          </TouchableOpacity>
+        </View>
       </View>
 
       {/* Location Bar */}
@@ -583,6 +679,21 @@ const styles = StyleSheet.create({
     fontWeight: TYPOGRAPHY.weights.bold,
     color: COLORS.gray[900],
   },
+  headerActions: {
+    flexDirection: 'row',
+    gap: SPACING.sm,
+  },
+  refreshButton: {
+    width: 40,
+    height: 40,
+    borderRadius: RADIUS.full,
+    backgroundColor: COLORS.gray[50],
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  refreshing: {
+    transform: [{ rotate: '180deg' }],
+  },
   filterButton: {
     width: 40,
     height: 40,
@@ -590,7 +701,20 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.gray[50],
     justifyContent: 'center',
     alignItems: 'center',
-  },  locationBar: {
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: SPACING.xl,
+  },
+  loadingText: {
+    marginTop: SPACING.lg,
+    fontSize: TYPOGRAPHY.sizes.base,
+    color: COLORS.gray[600],
+    fontWeight: TYPOGRAPHY.weights.medium,
+  },
+  locationBar: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',

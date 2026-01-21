@@ -87,7 +87,7 @@ exports.getConversations = async (req, res) => {
         if (otherRole === "EMPLOYER") {
           const { data: employer, error: empError } = await supabase
             .from("employers")
-            .select("id, name, email, company_name")
+            .select("id, name, email")
             .eq("id", otherId)
             .single();
           if (empError) {
