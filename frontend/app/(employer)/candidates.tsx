@@ -21,12 +21,13 @@ import { confirmJobCompletion } from '../../services/jobCompletionService';
 import { COLORS } from '../../constants/theme';
 
 const filterOptions = [
-  { id: 'all', label: 'All Applications', count: 0 },
-  { id: 'applied', label: 'Applied', count: 0 },
-  { id: 'shortlisted', label: 'Shortlisted', count: 0 },
-  { id: 'accepted', label: 'Accepted', count: 0 },
-  { id: 'rejected', label: 'Rejected', count: 0 },
+  { id: 'all', label: 'All Applications' },
+  { id: 'applied', label: 'Applied' },
+  { id: 'shortlisted', label: 'Shortlisted' },
+  { id: 'accepted', label: 'Accepted' },
+  { id: 'rejected', label: 'Rejected' },
 ];
+
 
 export default function Candidates() {
   const { jobId } = useLocalSearchParams<{ jobId?: string }>();
@@ -293,6 +294,12 @@ export default function Candidates() {
     return COLORS.gray[500];
   };
 
+  const getFilterCount = (filterId: string) => {
+  if (filterId === 'all') return candidates.length;
+  return candidates.filter(c => c.status === filterId).length;
+};
+
+
   const renderCandidateCard = ({ item }: { item: typeof candidates[0] }) => (
     <View style={styles.candidateCard}>
       {/* Header */}
@@ -383,45 +390,70 @@ export default function Candidates() {
 
       {/* Actions */}
       <View style={styles.candidateActions}>
+
+  {/* REJECTED → NO ACTIONS */}
+  {item.status === 'rejected' && (
+    <Text style={{ color: COLORS.status.error, fontWeight: '600' }}>
+      Application Rejected
+    </Text>
+  )}
+
+  {/* APPLIED → HIRE / REJECT */}
+  {item.status === 'applied' && (
+    <>
+      <TouchableOpacity
+        style={[styles.actionButton, styles.rejectButton]}
+        onPress={() => handleCandidateAction('reject', item)}
+      >
+        <Ionicons name="close" size={18} color={COLORS.status.error} />
+      </TouchableOpacity>
+
+      <TouchableOpacity
+        style={styles.hireButton}
+        onPress={() => handleCandidateAction('hire', item)}
+      >
+        <Text style={styles.hireButtonText}>Hire</Text>
+      </TouchableOpacity>
+    </>
+  )}
+
+  {/* ACCEPTED */}
+  {item.status === 'accepted' && (
+    <>
+      <TouchableOpacity
+        style={[styles.actionButton, styles.messageButton]}
+        onPress={() => handleCandidateAction('message', item)}
+      >
+        <Ionicons name="chatbubble-outline" size={18} color={COLORS.employer.primary} />
+      </TouchableOpacity>
+
+      <TouchableOpacity
+        style={[styles.actionButton, styles.callButton]}
+        onPress={() => handleCandidateAction('call', item)}
+      >
+        <Ionicons name="call-outline" size={18} color={COLORS.status.success} />
+      </TouchableOpacity>
+
+      {item.work_status === 'completed' ? (
         <TouchableOpacity
-          style={[styles.actionButton, styles.rejectButton]}
-          onPress={() => Alert.alert('Rejected', `${item.name} application rejected`)}
+          style={styles.confirmButton}
+          onPress={() => handleCandidateAction('confirm_complete', item)}
         >
-          <Ionicons name="close" size={18} color={COLORS.status.error} />
+          <Ionicons name="checkmark-circle" size={18} color={COLORS.white} />
+          <Text style={styles.confirmButtonText}>Confirm Complete</Text>
         </TouchableOpacity>
-        
-        <TouchableOpacity
-          style={[styles.actionButton, styles.messageButton]}
-          onPress={() => handleCandidateAction('message', item)}
-        >
-          <Ionicons name="chatbubble-outline" size={18} color={COLORS.employer.primary} />
-        </TouchableOpacity>
-        
-        <TouchableOpacity
-          style={[styles.actionButton, styles.callButton]}
-          onPress={() => handleCandidateAction('call', item)}
-        >
-          <Ionicons name="call-outline" size={18} color={COLORS.status.success} />
-        </TouchableOpacity>
-        
-        {/* Show confirm complete button if worker marked as completed */}
-        {item.work_status === 'completed' ? (
-          <TouchableOpacity
-            style={styles.confirmButton}
-            onPress={() => handleCandidateAction('confirm_complete', item)}
-          >
-            <Ionicons name="checkmark-circle" size={18} color={COLORS.white} />
-            <Text style={styles.confirmButtonText}>Confirm Complete</Text>
-          </TouchableOpacity>
-        ) : (
-          <TouchableOpacity
-            style={styles.hireButton}
-            onPress={() => handleCandidateAction('hire', item)}
-          >
-            <Text style={styles.hireButtonText}>Hire</Text>
-          </TouchableOpacity>
-        )}
-      </View>
+      ) : (
+        <View style={{ paddingVertical: 8 }}>
+          <Text style={{ color: COLORS.status.info, fontWeight: '600' }}>
+            Worker In Progress
+          </Text>
+        </View>
+      )}
+    </>
+  )}
+
+</View>
+
     </View>
   );
 
@@ -468,7 +500,13 @@ export default function Candidates() {
                     styles.filterCountText,
                     selectedFilter === option.id && styles.activeFilterCountText
                   ]}>
-                    {option.count}
+                    <Text style={[
+                      styles.filterCountText,
+                      selectedFilter === option.id && styles.activeFilterCountText
+                    ]}>
+                      {getFilterCount(option.id)}
+                    </Text>
+
                   </Text>
                 </View>
               </TouchableOpacity>
